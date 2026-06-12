@@ -20,6 +20,20 @@ type RunStep struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	Outputs *apiextensionsv1.JSON `json:"outputs,omitempty"`
 	Error   string                `json:"error,omitempty"`
+	// Iterations holds per-item results for a forEach step.
+	Iterations []RunStepIteration `json:"iterations,omitempty"`
+	// Note records forEach truncation, e.g. "matched 12, checked 3".
+	Note string `json:"note,omitempty"`
+}
+
+// RunStepIteration records one forEach iteration's result.
+type RunStepIteration struct {
+	Item map[string]string `json:"item,omitempty"`
+	// +kubebuilder:validation:Enum=completed;failed
+	Outcome string `json:"outcome"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Outputs *apiextensionsv1.JSON `json:"outputs,omitempty"`
+	Error   string                `json:"error,omitempty"`
 }
 
 type RunStatus struct {

@@ -45,13 +45,24 @@ func (s *Store) SaveRun(ctx context.Context, useCase string, inputs map[string]s
 
 	steps := make([]v1alpha1.RunStep, 0, len(res.Steps))
 	for _, sr := range res.Steps {
-		rs := v1alpha1.RunStep{Name: sr.Name, Outcome: sr.Outcome, Reason: sr.Reason, Error: sr.Error}
+		rs := v1alpha1.RunStep{Name: sr.Name, Outcome: sr.Outcome, Reason: sr.Reason, Error: sr.Error, Note: sr.Note}
 		if len(sr.Outputs) > 0 {
 			raw, err := json.Marshal(sr.Outputs)
 			if err != nil {
 				return nil, fmt.Errorf("marshal outputs for step %s: %w", sr.Name, err)
 			}
 			rs.Outputs = &apiextensionsv1.JSON{Raw: raw}
+		}
+		for _, it := range sr.Iterations {
+			ri := v1alpha1.RunStepIteration{Item: it.Item, Outcome: it.Outcome, Error: it.Error}
+			if len(it.Outputs) > 0 {
+				raw, err := json.Marshal(it.Outputs)
+				if err != nil {
+					return nil, fmt.Errorf("marshal iteration outputs for step %s: %w", sr.Name, err)
+				}
+				ri.Outputs = &apiextensionsv1.JSON{Raw: raw}
+			}
+			rs.Iterations = append(rs.Iterations, ri)
 		}
 		steps = append(steps, rs)
 	}

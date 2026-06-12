@@ -17,14 +17,26 @@ const (
 	PhaseSucceeded          = "Succeeded"
 	PhasePartiallySucceeded = "PartiallySucceeded"
 	PhaseFailed             = "Failed"
+
+	defaultMaxItems = 5
+	maxItemsCeiling = 20
 )
 
-type StepResult struct {
-	Name    string
-	Outcome string // completed | skipped | failed
-	Reason  string // why skipped/failed
+type IterationResult struct {
+	Item    map[string]string
+	Outcome string // completed | failed
 	Outputs methods.Outputs
 	Error   string
+}
+
+type StepResult struct {
+	Name       string
+	Outcome    string // completed | skipped | failed
+	Reason     string // why skipped/failed
+	Outputs    methods.Outputs
+	Error      string
+	Iterations []IterationResult // populated for forEach steps
+	Note       string            // forEach truncation note
 }
 
 type Result struct {
@@ -80,6 +92,10 @@ func (e *Engine) Execute(ctx context.Context, uc *v1alpha1.UseCase, inputs map[s
 
 func (e *Engine) runStep(ctx context.Context, uc *v1alpha1.UseCase, step v1alpha1.Step,
 	inputs map[string]string, state map[string]*StepResult) StepResult {
+
+	if step.ForEach != "" {
+		return e.runForEachStep(ctx, uc, step, inputs, state)
+	}
 
 	sr := StepResult{Name: step.Name}
 
@@ -165,6 +181,182 @@ func (e *Engine) runStep(ctx context.Context, uc *v1alpha1.UseCase, step v1alpha
 	}
 	sr.Outcome, sr.Outputs = OutcomeCompleted, outputs
 	return sr
+}
+
+func (e *Engine) runForEachStep(ctx context.Context, uc *v1alpha1.UseCase, step v1alpha1.Step,
+	inputs map[string]string, state map[string]*StepResult) StepResult {
+
+	sr := StepResult{Name: step.Name}
+
+	m, ok := e.Registry.Get(step.Method)
+	if !ok {
+		sr.Outcome, sr.Error = OutcomeFailed, fmt.Sprintf("unknown method %q", step.Method)
+		return sr
+	}
+
+	// Auto-skip if any referenced step (the forEach source, or a step named in
+	// when/with) did not complete — same dependency rule as a normal step
+	// (spec §6.2). Skipping, not failing, on an upstream non-completion.
+	for _, raw := range append([]string{step.ForEach, step.When}, mapValues(step.With)...) {
+		refs, _ := ExtractRefs(raw)
+		for _, r := range refs {
+			if r.Kind != "steps" {
+				continue
+			}
+			if d := state[r.Step]; d == nil || d.Outcome != OutcomeCompleted {
+				sr.Outcome = OutcomeSkipped
+				sr.Reason = fmt.Sprintf("depends on step %q which did not complete", r.Step)
+				return sr
+			}
+		}
+	}
+
+	refs, _ := ExtractRefs(step.ForEach)
+	if len(refs) != 1 || refs[0].Kind != "steps" {
+		sr.Outcome, sr.Error = OutcomeFailed, "invalid forEach reference"
+		return sr
+	}
+	listRef := refs[0]
+	dep := state[listRef.Step] // guaranteed completed by the dependency check above
+	raw, ok := dep.Outputs[listRef.Field]
+	if !ok {
+		sr.Outcome, sr.Error = OutcomeFailed, fmt.Sprintf("step %q has no output %q", listRef.Step, listRef.Field)
+		return sr
+	}
+	items, ok := raw.([]map[string]any)
+	if !ok {
+		sr.Outcome, sr.Error = OutcomeFailed, fmt.Sprintf("$(steps.%s.%s) is not a list output", listRef.Step, listRef.Field)
+		return sr
+	}
+
+	if step.When != "" {
+		scope := scopeBefore(uc, step.Name, e.Registry)
+		w, err := CompileWhen(step.When, scope)
+		if err != nil {
+			sr.Outcome, sr.Error = OutcomeFailed, fmt.Sprintf("when: %v", err)
+			return sr
+		}
+		match, err := w.Eval(func(r Ref) (any, bool) {
+			if r.Kind == "inputs" {
+				v, ok := inputs[r.Field]
+				return v, ok
+			}
+			d := state[r.Step]
+			if d == nil || d.Outputs == nil {
+				return nil, false
+			}
+			v, ok := d.Outputs[r.Field]
+			return v, ok
+		})
+		if err != nil {
+			sr.Outcome, sr.Error = OutcomeFailed, fmt.Sprintf("when: %v", err)
+			return sr
+		}
+		if !match {
+			sr.Outcome, sr.Reason = OutcomeSkipped, "when evaluated to false"
+			return sr
+		}
+	}
+
+	if len(items) == 0 {
+		sr.Outcome, sr.Reason = OutcomeSkipped, "no items matched"
+		return sr
+	}
+
+	limit := step.MaxItems
+	if limit == 0 {
+		limit = defaultMaxItems
+	}
+	if limit > maxItemsCeiling {
+		limit = maxItemsCeiling
+	}
+	n := limit
+	if n > len(items) {
+		n = len(items)
+	}
+	if n < len(items) {
+		sr.Note = fmt.Sprintf("matched %d, checked %d (worst-first); %d not examined", len(items), n, len(items)-n)
+	}
+
+	for _, item := range items[:n] {
+		sr.Iterations = append(sr.Iterations, e.runIteration(ctx, m, step, inputs, state, item))
+	}
+	// Surface the all-failed case at the step level so the run is readable
+	// without drilling into every iteration (the step is still "completed":
+	// each failed check is a recorded finding, spec §6.3).
+	failed := 0
+	for _, it := range sr.Iterations {
+		if it.Outcome == OutcomeFailed {
+			failed++
+		}
+	}
+	if failed > 0 && failed == len(sr.Iterations) {
+		if sr.Note != "" {
+			sr.Note += "; "
+		}
+		sr.Note += "all iterations failed"
+	}
+	sr.Outcome = OutcomeCompleted
+	return sr
+}
+
+func (e *Engine) runIteration(ctx context.Context, m methods.Method, step v1alpha1.Step,
+	inputs map[string]string, state map[string]*StepResult, item map[string]any) IterationResult {
+
+	itemStr := map[string]string{}
+	for k, v := range item {
+		itemStr[k] = fmt.Sprintf("%v", v)
+	}
+	ir := IterationResult{Item: itemStr}
+
+	lookup := func(r Ref) (string, bool) {
+		switch r.Kind {
+		case "item":
+			v, ok := item[r.Field]
+			if !ok {
+				return "", false
+			}
+			return fmt.Sprintf("%v", v), true
+		case "inputs":
+			v, ok := inputs[r.Field]
+			return v, ok
+		case "steps":
+			d := state[r.Step]
+			if d == nil || d.Outputs == nil {
+				return "", false
+			}
+			v, ok := d.Outputs[r.Field]
+			if !ok {
+				return "", false
+			}
+			return fmt.Sprintf("%v", v), true
+		}
+		return "", false
+	}
+
+	params := map[string]string{}
+	for k, v := range step.With {
+		resolved, err := Substitute(v, lookup)
+		if err != nil {
+			ir.Outcome, ir.Error = OutcomeFailed, fmt.Sprintf("with.%s: %v", k, err)
+			return ir
+		}
+		params[k] = resolved
+	}
+	if err := methods.ValidateParams(m, params); err != nil {
+		ir.Outcome, ir.Error = OutcomeFailed, err.Error()
+		return ir
+	}
+
+	stepCtx, cancel := context.WithTimeout(ctx, e.StepTimeout)
+	defer cancel()
+	outputs, err := m.Run(stepCtx, e.Deps, params)
+	if err != nil {
+		ir.Outcome, ir.Error = OutcomeFailed, err.Error()
+		return ir
+	}
+	ir.Outcome, ir.Outputs = OutcomeCompleted, outputs
+	return ir
 }
 
 // InputError marks invalid caller inputs (mapped to HTTP 400 by the server).

@@ -62,3 +62,45 @@ func TestSubstituteUnknownRefErrors(t *testing.T) {
 		t.Fatal("expected error for unresolvable ref")
 	}
 }
+
+func TestExtractItemRef(t *testing.T) {
+	refs, err := ExtractRefs(`pod $(item.name) in $(item.namespace)`)
+	if err != nil {
+		t.Fatalf("ExtractRefs: %v", err)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("got %d refs", len(refs))
+	}
+	if refs[0].Kind != "item" || refs[0].Field != "name" || refs[0].Step != "" {
+		t.Errorf("ref0 = %+v", refs[0])
+	}
+	if refs[1].Kind != "item" || refs[1].Field != "namespace" {
+		t.Errorf("ref1 = %+v", refs[1])
+	}
+}
+
+func TestItemRefRejectsMalformed(t *testing.T) {
+	for _, bad := range []string{"$(item)", "$(item.)", "$(item.a.b)"} {
+		if _, err := ExtractRefs(bad); err == nil {
+			t.Errorf("ExtractRefs(%q): expected error", bad)
+		}
+	}
+}
+
+func TestSubstituteItemRef(t *testing.T) {
+	got, err := Substitute("ns=$(item.namespace) name=$(item.name)", func(r Ref) (string, bool) {
+		switch {
+		case r.Kind == "item" && r.Field == "namespace":
+			return "kube-system", true
+		case r.Kind == "item" && r.Field == "name":
+			return "nld-abc", true
+		}
+		return "", false
+	})
+	if err != nil {
+		t.Fatalf("Substitute: %v", err)
+	}
+	if got != "ns=kube-system name=nld-abc" {
+		t.Errorf("got %q", got)
+	}
+}

@@ -21,6 +21,10 @@ runtime.
   `previous`, `tailLines`) are passed as strings and parsed by the method.
 - Large string outputs (e.g. `logs`, `manifest`) are truncated head+tail when
   they exceed the size cap.
+- Some methods declare a **list output** in addition to scalar outputs. A list
+  output is a named collection of typed-field records (e.g. `pods`). Lists are
+  consumable only by a `forEach` step (`forEach: $(steps.<step>.<list>)`); they
+  cannot be used in `when` conditions or `$(steps.x.y)` scalar references.
 - `describe_*` methods sanitize manifests: `managedFields` and the
   `last-applied-configuration` annotation are stripped, and container env var
   **values** are redacted (`[REDACTED]`). Other annotations are preserved — set
@@ -45,6 +49,7 @@ runtime.
 | [`check_service_endpoints`](#check_service_endpoints) | Does the service selector match ready endpoints? |
 | [`describe_service`](#describe_service) | Sanitized service manifest |
 | [`check_ingress`](#check_ingress) | Ingress rules, backend service existence, LB status |
+| [`list_failing_pods`](#list_failing_pods) | Failing pods of a workload (Deployment/DaemonSet/StatefulSet), worst-first — produces list output `pods` |
 
 ---
 
@@ -402,3 +407,44 @@ Ingress rules, backend service existence, LB status.
 | `rules` | string | rendered host/path -> backend lines |
 | `missingBackends` | string | comma-separated backend services that don't exist, `""` if all exist |
 | `loadBalancerReady` | bool | `status.loadBalancer` has an ingress IP/hostname |
+
+---
+
+## Discovery
+
+### `list_failing_pods`
+
+Failing pods of a workload (Deployment / DaemonSet / StatefulSet), worst-first.
+Produces a **list output** (`pods`) consumable only by a `forEach` step.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `namespace` | yes | workload namespace |
+| `kind` | yes | `Deployment` \| `DaemonSet` \| `StatefulSet` |
+| `name` | yes | workload name |
+| `minRestarts` | no | only include pods with restartCount ≥ this (default 0) |
+| `includeCrashLoop` | no | count `CrashLoopBackOff` pods (default `true`) |
+| `includeImagePull` | no | count `ImagePullBackOff`/`ErrImagePull`/`CreateContainerError` (default `true`) |
+| `includeOOM` | no | count `OOMKilled` / non-zero last-exit pods (default `true`) |
+| `includeNotReady` | no | count any not-Ready pod (default `false`) |
+
+**Scalar outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `count` | int | number of failing pods matched |
+| `anyFailing` | bool | `count > 0` |
+
+**List output `pods`** (items sorted worst-first by `restartCount`)
+
+| Item field | Type | Description |
+|---|---|---|
+| `namespace` | string | pod namespace |
+| `name` | string | pod name |
+| `reason` | string | dominant failure reason (e.g. `CrashLoopBackOff`, `OOMKilled`) |
+| `restartCount` | int | max restartCount across the pod's containers |
+
+Reference the list from a `forEach` step: `forEach: $(steps.<step>.pods)`, then
+bind `$(item.namespace)` / `$(item.name)` in the step's `with`.

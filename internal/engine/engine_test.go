@@ -171,3 +171,106 @@ func crashloopPodForEngine() *corev1.Pod {
 		},
 	}
 }
+
+func feUseCase() *v1alpha1.UseCase {
+	return &v1alpha1.UseCase{
+		ObjectMeta: metav1.ObjectMeta{Name: "fe"},
+		Spec: v1alpha1.UseCaseSpec{
+			Inputs: []v1alpha1.InputDecl{{Name: "namespace", Required: true}, {Name: "workload", Required: true}},
+			Steps: []v1alpha1.Step{
+				{Name: "crashing", Method: "list_failing_pods",
+					With: map[string]string{"namespace": "$(inputs.namespace)", "kind": "DaemonSet", "name": "$(inputs.workload)"}},
+				{Name: "check", Method: "check_pod_status", ForEach: "$(steps.crashing.pods)", MaxItems: 2,
+					With: map[string]string{"namespace": "$(item.namespace)", "name": "$(item.name)"}},
+			},
+			Summary: v1alpha1.SummarySpec{Prompt: "x"},
+		},
+	}
+}
+
+func fePod(name string, restarts int32) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "kube-system",
+			OwnerReferences: []metav1.OwnerReference{{Kind: "DaemonSet", Name: "nld"}}},
+		Status: corev1.PodStatus{
+			Phase:      corev1.PodRunning,
+			Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}},
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name: "c", RestartCount: restarts,
+				State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}},
+			}},
+		},
+	}
+}
+
+func feEngine(client *fake.Clientset) *Engine {
+	return &Engine{Deps: methods.Deps{Kube: client}, Registry: methods.Builtin(),
+		Summarize: okSummarizer("s"), StepTimeout: 5 * time.Second}
+}
+
+func TestExecuteForEachCapsAndOrders(t *testing.T) {
+	client := fake.NewSimpleClientset(fePod("a", 3), fePod("b", 9), fePod("c", 1))
+	res, err := feEngine(client).Execute(context.Background(), feUseCase(),
+		map[string]string{"namespace": "kube-system", "workload": "nld"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Steps[0].Outcome != "completed" || res.Steps[0].Outputs["count"] != int64(3) {
+		t.Fatalf("crashing step = %+v", res.Steps[0])
+	}
+	fe := res.Steps[1]
+	if fe.Outcome != "completed" {
+		t.Fatalf("forEach step outcome = %q", fe.Outcome)
+	}
+	if len(fe.Iterations) != 2 {
+		t.Fatalf("iterations = %d, want 2 (capped)", len(fe.Iterations))
+	}
+	if fe.Note == "" {
+		t.Error("expected truncation note")
+	}
+	// Worst-first: b (9 restarts) then a (3).
+	if fe.Iterations[0].Item["name"] != "b" || fe.Iterations[1].Item["name"] != "a" {
+		t.Errorf("order wrong: %v, %v", fe.Iterations[0].Item, fe.Iterations[1].Item)
+	}
+	if fe.Iterations[0].Outcome != "completed" || fe.Iterations[0].Outputs["restartCount"] != int64(9) {
+		t.Errorf("iteration0 outputs = %+v", fe.Iterations[0])
+	}
+	if res.Phase != "Succeeded" {
+		t.Errorf("phase = %q", res.Phase)
+	}
+}
+
+func TestExecuteForEachSkipsWhenSourceFailed(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	uc := feUseCase()
+	// Force the list step to fail at runtime (unsupported kind). The forEach
+	// step gates on $(steps.crashing.anyFailing) and forEach: $(steps.crashing.pods),
+	// so it must SKIP (not fail) because its dependency did not complete.
+	uc.Spec.Steps[0].With["kind"] = "BadKind"
+	res, err := feEngine(client).Execute(context.Background(), uc,
+		map[string]string{"namespace": "kube-system", "workload": "nld"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Steps[0].Outcome != "failed" {
+		t.Fatalf("source step should fail: %+v", res.Steps[0])
+	}
+	if res.Steps[1].Outcome != "skipped" || !strings.Contains(res.Steps[1].Reason, "crashing") {
+		t.Errorf("forEach step should skip naming the failed source: %+v", res.Steps[1])
+	}
+}
+
+func TestExecuteForEachZeroItemsSkips(t *testing.T) {
+	client := fake.NewSimpleClientset() // no pods
+	res, err := feEngine(client).Execute(context.Background(), feUseCase(),
+		map[string]string{"namespace": "kube-system", "workload": "nld"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Steps[1].Outcome != "skipped" || res.Steps[1].Reason == "" {
+		t.Errorf("forEach over empty list should skip: %+v", res.Steps[1])
+	}
+	if res.Phase != "Succeeded" {
+		t.Errorf("phase = %q", res.Phase)
+	}
+}

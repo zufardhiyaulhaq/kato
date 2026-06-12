@@ -22,10 +22,14 @@ type Ref struct {
 // CELVar is the sanitized CEL identifier for this ref. Hyphens in step names
 // become underscores; step and field are joined with "__".
 func (r Ref) CELVar() string {
-	if r.Kind == "inputs" {
+	switch r.Kind {
+	case "inputs":
 		return "inputs_" + r.Field
+	case "item":
+		return "item_" + r.Field
+	default:
+		return "steps_" + strings.ReplaceAll(r.Step, "-", "_") + "__" + r.Field
 	}
-	return "steps_" + strings.ReplaceAll(r.Step, "-", "_") + "__" + r.Field
 }
 
 func parseRef(raw string) (Ref, error) {
@@ -33,10 +37,12 @@ func parseRef(raw string) (Ref, error) {
 	switch {
 	case len(parts) == 2 && parts[0] == "inputs" && parts[1] != "":
 		return Ref{Raw: raw, Kind: "inputs", Field: parts[1]}, nil
+	case len(parts) == 2 && parts[0] == "item" && parts[1] != "":
+		return Ref{Raw: raw, Kind: "item", Field: parts[1]}, nil
 	case len(parts) == 3 && parts[0] == "steps" && parts[1] != "" && parts[2] != "":
 		return Ref{Raw: raw, Kind: "steps", Step: parts[1], Field: parts[2]}, nil
 	default:
-		return Ref{}, fmt.Errorf("invalid reference $(%s): want $(inputs.<name>) or $(steps.<step>.<field>)", raw)
+		return Ref{}, fmt.Errorf("invalid reference $(%s): want $(inputs.<name>), $(item.<field>) or $(steps.<step>.<field>)", raw)
 	}
 }
 

@@ -31,7 +31,31 @@ type OutputField struct {
 	Description string
 }
 
-// Outputs values must be string, int64, or bool per the declared field type.
+// ListOutputField declares a list output: a named list whose items are records
+// of typed fields. Lists are consumable only by a UseCase `forEach` step, never
+// by a `when` condition (spec: matching stays scalar-only).
+type ListOutputField struct {
+	Name        string
+	ItemFields  []OutputField
+	Description string
+}
+
+// ListProducer is the optional interface a method implements when it returns
+// one or more list outputs. Methods without lists simply do not implement it.
+type ListProducer interface {
+	ListOutputs() []ListOutputField
+}
+
+// ListOutputsOf returns m's declared list outputs, or nil if it has none.
+func ListOutputsOf(m Method) []ListOutputField {
+	if lp, ok := m.(ListProducer); ok {
+		return lp.ListOutputs()
+	}
+	return nil
+}
+
+// Outputs values are string, int64, or bool per the declared OutputField type,
+// or []map[string]any for a declared ListOutputField (a list of item records).
 type Outputs map[string]any
 
 // Deps holds the clients a method may use. Kube is always set. Metrics is set

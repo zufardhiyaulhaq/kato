@@ -55,3 +55,42 @@ func TestValidateParams(t *testing.T) {
 		t.Fatalf("valid params errored: %v", err)
 	}
 }
+
+type listy struct{}
+
+func (listy) Name() string                { return "listy" }
+func (listy) Description() string         { return "has a list output" }
+func (listy) Params() []Param             { return nil }
+func (listy) OutputFields() []OutputField { return []OutputField{{Name: "count", Type: FieldInt}} }
+func (listy) ListOutputs() []ListOutputField {
+	return []ListOutputField{{
+		Name: "items",
+		ItemFields: []OutputField{
+			{Name: "name", Type: FieldString},
+			{Name: "n", Type: FieldInt},
+		},
+	}}
+}
+func (listy) Run(context.Context, Deps, map[string]string) (Outputs, error) { return nil, nil }
+
+type plain struct{}
+
+func (plain) Name() string                                                  { return "plain" }
+func (plain) Description() string                                           { return "" }
+func (plain) Params() []Param                                               { return nil }
+func (plain) OutputFields() []OutputField                                   { return nil }
+func (plain) Run(context.Context, Deps, map[string]string) (Outputs, error) { return nil, nil }
+
+func TestListOutputsOf(t *testing.T) {
+	got := ListOutputsOf(listy{})
+	if len(got) != 1 || got[0].Name != "items" {
+		t.Fatalf("listy list outputs = %v", got)
+	}
+	if got[0].ItemFields[1].Name != "n" || got[0].ItemFields[1].Type != FieldInt {
+		t.Errorf("item field types wrong: %v", got[0].ItemFields)
+	}
+	// A method that does not implement ListProducer returns nil.
+	if got := ListOutputsOf(plain{}); got != nil {
+		t.Errorf("plain should have no list outputs, got %v", got)
+	}
+}

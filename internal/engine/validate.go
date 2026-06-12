@@ -20,6 +20,8 @@ func ValidateUseCase(uc *v1alpha1.UseCase, reg *methods.Registry, modelConfigExi
 	}
 
 	scope := Scope{InputNames: inputNames, StepOutputs: map[string]map[string]methods.FieldType{}}
+	// stepLists[step][listName][itemField] = type
+	stepLists := map[string]map[string]map[string]methods.FieldType{}
 	seenSteps := map[string]bool{}
 	seenSanitized := map[string]string{}
 
@@ -39,14 +41,43 @@ func ValidateUseCase(uc *v1alpha1.UseCase, reg *methods.Registry, modelConfigExi
 		m, ok := reg.Get(step.Method)
 		if !ok {
 			addf("%s: unknown method %q", where, step.Method)
-			continue // no contract to check against
+			continue
+		}
+
+		isForEach := step.ForEach != ""
+		// itemFields are the fields $(item.X) may reference inside this step.
+		var itemFields map[string]methods.FieldType
+
+		if isForEach {
+			if step.MaxItems < 0 {
+				addf("%s: maxItems must be >= 0", where)
+			}
+			if len(step.With) == 0 {
+				addf("%s: a forEach step must declare with (to bind $(item.<field>) into the method)", where)
+			}
+			refs, err := ExtractRefs(step.ForEach)
+			if err != nil {
+				addf("%s forEach: %v", where, err)
+			} else if len(refs) != 1 || refs[0].Kind != "steps" {
+				addf("%s forEach: must be exactly one $(steps.<step>.<listOutput>) reference", where)
+			} else {
+				r := refs[0]
+				lists, known := stepLists[r.Step]
+				if !known {
+					addf("%s forEach: step %q is unknown or not before this step", where, r.Step)
+				} else if fields, isList := lists[r.Field]; !isList {
+					addf("%s forEach: $(steps.%s.%s) is not a list output", where, r.Step, r.Field)
+				} else {
+					itemFields = fields
+				}
+			}
 		}
 
 		if err := methods.ValidateParams(m, step.With); err != nil {
 			addf("%s: %v", where, err)
 		}
 
-		// with-value references: must resolve against inputs/prior steps.
+		// with-value references.
 		for param, val := range step.With {
 			refs, err := ExtractRefs(val)
 			if err != nil {
@@ -54,8 +85,23 @@ func ValidateUseCase(uc *v1alpha1.UseCase, reg *methods.Registry, modelConfigExi
 				continue
 			}
 			for _, r := range refs {
-				if _, err := scope.typeOf(r); err != nil {
-					addf("%s with.%s: %v", where, param, err)
+				switch r.Kind {
+				case "item":
+					if !isForEach {
+						addf("%s with.%s: $(item.%s) is only valid in a forEach step", where, param, r.Field)
+					} else if itemFields != nil {
+						if _, ok := itemFields[r.Field]; !ok {
+							valid := make([]string, 0, len(itemFields))
+							for f := range itemFields {
+								valid = append(valid, f)
+							}
+							addf("%s with.%s: list has no item field %q (valid: %s)", where, param, r.Field, strings.Join(valid, ", "))
+						}
+					}
+				default:
+					if _, err := scope.typeOf(r); err != nil {
+						addf("%s with.%s: %v", where, param, err)
+					}
 				}
 			}
 		}
@@ -72,12 +118,25 @@ func ValidateUseCase(uc *v1alpha1.UseCase, reg *methods.Registry, modelConfigExi
 			}
 		}
 
-		// This step's outputs become visible to LATER steps.
-		fields := map[string]methods.FieldType{}
-		for _, of := range m.OutputFields() {
-			fields[of.Name] = of.Type
+		// Register outputs for LATER steps. A forEach step exposes nothing
+		// referenceable (its results are per-item, not aggregated).
+		if !isForEach {
+			fields := map[string]methods.FieldType{}
+			for _, of := range m.OutputFields() {
+				fields[of.Name] = of.Type
+			}
+			scope.StepOutputs[step.Name] = fields
+
+			lm := map[string]map[string]methods.FieldType{}
+			for _, lo := range methods.ListOutputsOf(m) {
+				fm := map[string]methods.FieldType{}
+				for _, itf := range lo.ItemFields {
+					fm[itf.Name] = itf.Type
+				}
+				lm[lo.Name] = fm
+			}
+			stepLists[step.Name] = lm
 		}
-		scope.StepOutputs[step.Name] = fields
 	}
 
 	if ref := uc.Spec.Summary.ModelConfigRef; ref != "" && !modelConfigExists(ref) {

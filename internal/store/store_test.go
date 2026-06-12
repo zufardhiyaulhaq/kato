@@ -73,6 +73,41 @@ func TestSaveRunWritesSpecAndStatus(t *testing.T) {
 	}
 }
 
+func TestSaveRunPersistsIterations(t *testing.T) {
+	c := newFakeClient(t)
+	s := &Store{Client: c, Namespace: "kato"}
+	res := engine.Result{
+		Phase: "Succeeded",
+		Steps: []engine.StepResult{{
+			Name: "check", Outcome: "completed",
+			Note: "matched 3, checked 2 (worst-first); 1 not examined",
+			Iterations: []engine.IterationResult{
+				{Item: map[string]string{"name": "b"}, Outcome: "completed", Outputs: map[string]any{"restartCount": int64(9)}},
+				{Item: map[string]string{"name": "a"}, Outcome: "failed", Error: "boom"},
+			},
+		}},
+	}
+	run, err := s.SaveRun(context.Background(), "fe", map[string]string{"workload": "nld"}, res,
+		time.Date(2026, 6, 12, 10, 0, 0, 0, time.UTC), time.Date(2026, 6, 12, 10, 0, 1, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("SaveRun: %v", err)
+	}
+	var got v1alpha1.Run
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(run), &got); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	st := got.Status.Steps[0]
+	if st.Note == "" || len(st.Iterations) != 2 {
+		t.Fatalf("iterations not persisted: %+v", st)
+	}
+	if st.Iterations[1].Outcome != "failed" || st.Iterations[1].Error != "boom" {
+		t.Errorf("iteration1 = %+v", st.Iterations[1])
+	}
+	if st.Iterations[0].Outputs == nil {
+		t.Error("iteration0 outputs not persisted")
+	}
+}
+
 func TestGCDeletesExpiredRuns(t *testing.T) {
 	now := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)
 	old := &v1alpha1.Run{ObjectMeta: metav1.ObjectMeta{

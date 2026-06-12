@@ -78,7 +78,35 @@ spec:
                   properties:
                     error:
                       type: string
+                    iterations:
+                      description: Iterations holds per-item results for a forEach
+                        step.
+                      items:
+                        description: RunStepIteration records one forEach iteration's
+                          result.
+                        properties:
+                          error:
+                            type: string
+                          item:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          outcome:
+                            enum:
+                            - completed
+                            - failed
+                            type: string
+                          outputs:
+                            x-kubernetes-preserve-unknown-fields: true
+                        required:
+                        - outcome
+                        type: object
+                      type: array
                     name:
+                      type: string
+                    note:
+                      description: Note records forEach truncation, e.g. "matched
+                        12, checked 3".
                       type: string
                     outcome:
                       enum:

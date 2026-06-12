@@ -1,0 +1,153 @@
+package methods
+
+import (
+	"context"
+	"testing"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
+)
+
+func crashingPod(name, ns string, owner metav1.OwnerReference, restarts int32, waiting string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, OwnerReferences: []metav1.OwnerReference{owner}},
+		Status: corev1.PodStatus{
+			Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}},
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name: "c", RestartCount: restarts,
+				State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: waiting}},
+			}},
+		},
+	}
+}
+
+func dsOwner(name string) metav1.OwnerReference {
+	return metav1.OwnerReference{Kind: "DaemonSet", Name: name}
+}
+
+func TestListFailingPodsDaemonSet(t *testing.T) {
+	healthy := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "ok", Namespace: "kube-system", OwnerReferences: []metav1.OwnerReference{dsOwner("nld")}},
+		Status: corev1.PodStatus{
+			Conditions:        []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+			ContainerStatuses: []corev1.ContainerStatus{{Name: "c", State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}}},
+		},
+	}
+	client := fake.NewSimpleClientset(
+		healthy,
+		crashingPod("nld-a", "kube-system", dsOwner("nld"), 9, "CrashLoopBackOff"),
+		crashingPod("nld-b", "kube-system", dsOwner("nld"), 12, "CrashLoopBackOff"),
+		crashingPod("other", "kube-system", dsOwner("different-ds"), 5, "CrashLoopBackOff"), // wrong owner
+	)
+	m, ok := Builtin().Get("list_failing_pods")
+	if !ok {
+		t.Fatal("list_failing_pods not registered")
+	}
+	out, err := m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "kube-system", "kind": "DaemonSet", "name": "nld"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out["count"] != int64(2) || out["anyFailing"] != true {
+		t.Errorf("count=%v anyFailing=%v", out["count"], out["anyFailing"])
+	}
+	pods, _ := out["pods"].([]map[string]any)
+	if len(pods) != 2 {
+		t.Fatalf("pods len = %d, want 2", len(pods))
+	}
+	// Worst-first: nld-b (12 restarts) before nld-a (9).
+	if pods[0]["name"] != "nld-b" || pods[0]["restartCount"] != int64(12) {
+		t.Errorf("worst-first wrong: %v", pods)
+	}
+	if pods[0]["namespace"] != "kube-system" || pods[0]["reason"] != "CrashLoopBackOff" {
+		t.Errorf("item fields wrong: %v", pods[0])
+	}
+}
+
+func TestListFailingPodsDeployment(t *testing.T) {
+	// Deployment -> ReplicaSet -> Pod (two hops).
+	rs := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
+		Name: "api-7d9", Namespace: "payments",
+		OwnerReferences: []metav1.OwnerReference{{Kind: "Deployment", Name: "api"}},
+	}}
+	rsOwner := metav1.OwnerReference{Kind: "ReplicaSet", Name: "api-7d9"}
+	client := fake.NewSimpleClientset(
+		rs,
+		crashingPod("api-7d9-x", "payments", rsOwner, 3, "CrashLoopBackOff"),
+	)
+	m, _ := Builtin().Get("list_failing_pods")
+	out, err := m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "payments", "kind": "Deployment", "name": "api"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out["count"] != int64(1) {
+		t.Fatalf("count = %v, want 1", out["count"])
+	}
+	pods := out["pods"].([]map[string]any)
+	if pods[0]["name"] != "api-7d9-x" {
+		t.Errorf("pod = %v", pods[0])
+	}
+}
+
+func TestListFailingPodsCriteriaAndMinRestarts(t *testing.T) {
+	imagePull := crashingPod("img", "default", dsOwner("ds"), 0, "ImagePullBackOff")
+	crash := crashingPod("crash", "default", dsOwner("ds"), 7, "CrashLoopBackOff")
+	client := fake.NewSimpleClientset(imagePull, crash)
+	m, _ := Builtin().Get("list_failing_pods")
+
+	// Default criteria: both image-pull and crashloop match.
+	out, _ := m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "default", "kind": "DaemonSet", "name": "ds"})
+	if out["count"] != int64(2) {
+		t.Errorf("default count = %v, want 2", out["count"])
+	}
+
+	// Disable image-pull: only the crashloop pod remains.
+	out, _ = m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "default", "kind": "DaemonSet", "name": "ds", "includeImagePull": "false"})
+	if out["count"] != int64(1) {
+		t.Errorf("no-imagepull count = %v, want 1", out["count"])
+	}
+
+	// minRestarts=5 drops the image-pull pod (0 restarts), keeps crash (7).
+	out, _ = m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "default", "kind": "DaemonSet", "name": "ds", "minRestarts": "5"})
+	if out["count"] != int64(1) {
+		t.Errorf("minRestarts count = %v, want 1", out["count"])
+	}
+}
+
+func TestListFailingPodsNoneFailing(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	m, _ := Builtin().Get("list_failing_pods")
+	out, err := m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "default", "kind": "DaemonSet", "name": "ds"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out["count"] != int64(0) || out["anyFailing"] != false {
+		t.Errorf("expected zero/false, got count=%v any=%v", out["count"], out["anyFailing"])
+	}
+	if pods := out["pods"].([]map[string]any); len(pods) != 0 {
+		t.Errorf("pods should be empty, got %v", pods)
+	}
+}
+
+func TestListFailingPodsDeclaresListOutput(t *testing.T) {
+	m, _ := Builtin().Get("list_failing_pods")
+	lists := ListOutputsOf(m)
+	if len(lists) != 1 || lists[0].Name != "pods" {
+		t.Fatalf("list outputs = %v", lists)
+	}
+	fields := map[string]FieldType{}
+	for _, f := range lists[0].ItemFields {
+		fields[f.Name] = f.Type
+	}
+	if fields["namespace"] != FieldString || fields["name"] != FieldString ||
+		fields["reason"] != FieldString || fields["restartCount"] != FieldInt {
+		t.Errorf("item fields wrong: %v", fields)
+	}
+}

@@ -59,6 +59,33 @@ func BuildEvidence(uc *v1alpha1.UseCase, steps []engine.StepResult) string {
 			b.Write(j)
 			b.WriteByte('\n')
 		}
+		if len(sr.Iterations) > 0 {
+			if sr.Note != "" {
+				fmt.Fprintf(&b, "note: %s\n", sr.Note)
+			}
+			allow, hasFilter := filters[sr.Name]
+			for _, it := range sr.Iterations {
+				fmt.Fprintf(&b, "- item %v (%s)\n", it.Item, it.Outcome)
+				if it.Error != "" {
+					fmt.Fprintf(&b, "  error: %s\n", it.Error)
+				}
+				if len(it.Outputs) > 0 {
+					shown := map[string]any(it.Outputs)
+					if hasFilter {
+						shown = map[string]any{}
+						for _, f := range allow {
+							if v, present := it.Outputs[f]; present {
+								shown[f] = v
+							}
+						}
+					}
+					j, _ := json.MarshalIndent(shown, "  ", "  ")
+					b.WriteString("  ")
+					b.Write(j)
+					b.WriteByte('\n')
+				}
+			}
+		}
 		b.WriteByte('\n')
 	}
 	return b.String()

@@ -55,3 +55,38 @@ func TestBuildEvidenceIncludesOutcomes(t *testing.T) {
 		t.Errorf("failed step evidence missing: %q", ev)
 	}
 }
+
+func TestBuildEvidenceRendersIterations(t *testing.T) {
+	uc := &v1alpha1.UseCase{Spec: v1alpha1.UseCaseSpec{
+		Steps: []v1alpha1.Step{
+			{Name: "check", Method: "check_pod_status", ForEach: "$(steps.crashing.pods)",
+				SummaryFilter: []string{"restartCount"}}, // only restartCount per iteration
+		},
+		Summary: v1alpha1.SummarySpec{Prompt: "x"},
+	}}
+	steps := []engine.StepResult{{
+		Name: "check", Outcome: "completed",
+		Note: "matched 3, checked 2 (worst-first); 1 not examined",
+		Iterations: []engine.IterationResult{
+			{Item: map[string]string{"name": "b", "namespace": "kube-system"}, Outcome: "completed",
+				Outputs: methods.Outputs{"restartCount": int64(9), "phase": "Running"}},
+			{Item: map[string]string{"name": "a"}, Outcome: "failed", Error: "logs unavailable"},
+		},
+	}}
+	ev := BuildEvidence(uc, steps)
+	if !strings.Contains(ev, "not examined") {
+		t.Error("note missing")
+	}
+	if !strings.Contains(ev, `"b"`) && !strings.Contains(ev, "b") {
+		t.Error("item identity missing")
+	}
+	if !strings.Contains(ev, "restartCount") || !strings.Contains(ev, "9") {
+		t.Error("filtered iteration output missing")
+	}
+	if strings.Contains(ev, "phase") { // filtered out by summaryFilter
+		t.Error("non-filtered field leaked into iteration evidence")
+	}
+	if !strings.Contains(ev, "logs unavailable") {
+		t.Error("failed iteration error missing")
+	}
+}

@@ -23,6 +23,12 @@ type Step struct {
 	// SummaryFilter lists which outputs the LLM sees.
 	// nil (omitted) = all outputs; empty list = none (audit-only step).
 	SummaryFilter []string `json:"summaryFilter,omitempty"`
+	// ForEach references a list output of an earlier step, e.g.
+	// "$(steps.crashing.pods)". When set, Method runs once per item and
+	// $(item.<field>) is available in With (not in When).
+	ForEach string `json:"forEach,omitempty"`
+	// MaxItems caps forEach iterations. Default 5; hard ceiling 20.
+	MaxItems int `json:"maxItems,omitempty"`
 }
 
 type SummarySpec struct {

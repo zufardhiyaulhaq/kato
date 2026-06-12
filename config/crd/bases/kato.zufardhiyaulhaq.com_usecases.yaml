@@ -65,6 +65,16 @@ spec:
                 items:
                   description: Step is one method invocation in the flow.
                   properties:
+                    forEach:
+                      description: |-
+                        ForEach references a list output of an earlier step, e.g.
+                        "$(steps.crashing.pods)". When set, Method runs once per item and
+                        $(item.<field>) is available in With (not in When).
+                      type: string
+                    maxItems:
+                      description: MaxItems caps forEach iterations. Default 5; hard
+                        ceiling 20.
+                      type: integer
                     method:
                       type: string
                     name:

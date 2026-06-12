@@ -103,20 +103,43 @@ func (s *Server) getUseCase(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.view(uc))
 }
 
+type itemFieldView struct {
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Description string `json:"description"`
+}
+
+type listOutputView struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	ItemFields  []itemFieldView `json:"itemFields"`
+}
+
 type methodView struct {
 	Name        string                `json:"name"`
 	Description string                `json:"description"`
 	Params      []methods.Param       `json:"params"`
 	Outputs     []methods.OutputField `json:"outputs"`
+	Lists       []listOutputView      `json:"lists,omitempty"`
 }
 
 func (s *Server) listMethods(w http.ResponseWriter, _ *http.Request) {
 	views := []methodView{}
 	for _, m := range s.Registry.All() {
-		views = append(views, methodView{
+		mv := methodView{
 			Name: m.Name(), Description: m.Description(),
 			Params: m.Params(), Outputs: m.OutputFields(),
-		})
+		}
+		for _, lo := range methods.ListOutputsOf(m) {
+			lv := listOutputView{Name: lo.Name, Description: lo.Description}
+			for _, f := range lo.ItemFields {
+				lv.ItemFields = append(lv.ItemFields, itemFieldView{
+					Name: f.Name, Type: string(f.Type), Description: f.Description,
+				})
+			}
+			mv.Lists = append(mv.Lists, lv)
+		}
+		views = append(views, mv)
 	}
 	writeJSON(w, 200, map[string]any{"methods": views})
 }

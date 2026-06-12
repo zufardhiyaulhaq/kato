@@ -1,0 +1,34 @@
+apiVersion: kato.zufardhiyaulhaq.com/v1alpha1
+kind: UseCase
+metadata:
+  name: workload-crashloop
+spec:
+  description: "List a workload's failing pods and fetch logs for the worst few"
+  inputs:
+    - name: namespace
+      required: true
+    - name: kind
+      required: true
+    - name: workload
+      required: true
+  steps:
+    - name: crashing
+      method: list_failing_pods
+      with:
+        namespace: $(inputs.namespace)
+        kind: $(inputs.kind)
+        name: $(inputs.workload)
+    - name: logs
+      forEach: $(steps.crashing.pods)
+      maxItems: 3
+      when: $(steps.crashing.anyFailing)
+      method: check_pod_logs
+      with:
+        namespace: $(item.namespace)
+        name: $(item.name)
+        previous: "true"
+      summaryFilter: [logs]
+  summary:
+    prompt: |
+      Several pods of this workload are failing. Using each pod's reason and
+      logs, explain the common root cause and suggest a fix.

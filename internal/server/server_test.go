@@ -175,3 +175,21 @@ func TestConcurrencyCap(t *testing.T) {
 		t.Errorf("status = %d, want 429", w.Code)
 	}
 }
+
+func TestListMethodsIncludesListOutputs(t *testing.T) {
+	s := testServer(sampleUseCase(), true)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/methods", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	body := w.Body.String()
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if !strings.Contains(body, "list_failing_pods") {
+		t.Error("list_failing_pods missing from methods")
+	}
+	// The list output and its item fields must be exposed.
+	if !strings.Contains(body, `"pods"`) || !strings.Contains(body, "restartCount") {
+		t.Errorf("list output / item fields missing: %s", body)
+	}
+}

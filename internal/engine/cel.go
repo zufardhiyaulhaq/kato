@@ -18,6 +18,9 @@ type Scope struct {
 }
 
 func (s Scope) typeOf(r Ref) (*cel.Type, error) {
+	if r.Kind == "item" {
+		return nil, fmt.Errorf("$(%s): item references are not allowed in a when condition (only in with)", r.Raw)
+	}
 	if r.Kind == "inputs" {
 		for _, n := range s.InputNames {
 			if n == r.Field {

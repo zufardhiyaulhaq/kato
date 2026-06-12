@@ -18,8 +18,8 @@ func validUseCase() *v1alpha1.UseCase {
 				{Name: "status", Method: "check_pod_status",
 					With: map[string]string{"namespace": "$(inputs.namespace)", "name": "$(inputs.pod)"}},
 				{Name: "prev-logs", Method: "check_pod_logs",
-					When: "$(steps.status.restartCount) > 0",
-					With: map[string]string{"namespace": "$(inputs.namespace)", "name": "$(inputs.pod)", "previous": "true"},
+					When:          "$(steps.status.restartCount) > 0",
+					With:          map[string]string{"namespace": "$(inputs.namespace)", "name": "$(inputs.pod)", "previous": "true"},
 					SummaryFilter: []string{"logs"}},
 			},
 			Summary: v1alpha1.SummarySpec{Prompt: "diagnose"},
@@ -74,5 +74,76 @@ func TestValidateUseCaseMissingModelConfig(t *testing.T) {
 	errs := ValidateUseCase(uc, methods.Builtin(), func(string) bool { return false })
 	if len(errs) == 0 || !strings.Contains(errs[0], "modelConfigRef") {
 		t.Fatalf("expected modelConfigRef error, got %v", errs)
+	}
+}
+
+func foreachUseCase() *v1alpha1.UseCase {
+	return &v1alpha1.UseCase{
+		Spec: v1alpha1.UseCaseSpec{
+			Inputs: []v1alpha1.InputDecl{
+				{Name: "namespace", Required: true}, {Name: "workload", Required: true},
+			},
+			Steps: []v1alpha1.Step{
+				{Name: "crashing", Method: "list_failing_pods",
+					With: map[string]string{"namespace": "$(inputs.namespace)", "kind": "DaemonSet", "name": "$(inputs.workload)"}},
+				{Name: "logs", Method: "check_pod_logs",
+					ForEach:  "$(steps.crashing.pods)",
+					MaxItems: 3,
+					When:     "$(steps.crashing.anyFailing)",
+					With:     map[string]string{"namespace": "$(item.namespace)", "name": "$(item.name)"}},
+			},
+			Summary: v1alpha1.SummarySpec{Prompt: "x"},
+		},
+	}
+}
+
+func validateFE(uc *v1alpha1.UseCase) []string {
+	return ValidateUseCase(uc, methods.Builtin(), func(string) bool { return true })
+}
+
+func TestValidateForEachOK(t *testing.T) {
+	if errs := validateFE(foreachUseCase()); len(errs) != 0 {
+		t.Fatalf("valid forEach use case rejected: %v", errs)
+	}
+}
+
+func TestValidateForEachErrors(t *testing.T) {
+	cases := []struct {
+		name    string
+		mutate  func(*v1alpha1.UseCase)
+		wantSub string
+	}{
+		{"forEach not a list", func(u *v1alpha1.UseCase) { u.Spec.Steps[1].ForEach = "$(steps.crashing.count)" }, "not a list output"},
+		{"forEach unknown step", func(u *v1alpha1.UseCase) { u.Spec.Steps[1].ForEach = "$(steps.nope.pods)" }, "unknown or not before"},
+		{"forEach forward ref", func(u *v1alpha1.UseCase) {
+			u.Spec.Steps[0].ForEach = "$(steps.logs.pods)"
+			u.Spec.Steps[0].With = map[string]string{"name": "$(item.name)"}
+		}, "unknown or not before"},
+		{"item field unknown", func(u *v1alpha1.UseCase) { u.Spec.Steps[1].With["name"] = "$(item.bogus)" }, "no item field"},
+		{"item without forEach", func(u *v1alpha1.UseCase) { u.Spec.Steps[0].With["name"] = "$(item.name)" }, "only valid in a forEach"},
+		{"item in when", func(u *v1alpha1.UseCase) { u.Spec.Steps[1].When = `$(item.name) != ""` }, "not allowed in a when"},
+		{"negative maxItems", func(u *v1alpha1.UseCase) { u.Spec.Steps[1].MaxItems = -1 }, "maxItems"},
+		{"forEach two refs", func(u *v1alpha1.UseCase) { u.Spec.Steps[1].ForEach = "$(steps.crashing.pods)$(inputs.namespace)" }, "exactly one"},
+	}
+	for _, tc := range cases {
+		uc := foreachUseCase()
+		tc.mutate(uc)
+		errs := validateFE(uc)
+		if len(errs) == 0 {
+			t.Errorf("%s: expected error", tc.name)
+			continue
+		}
+		if !strings.Contains(strings.Join(errs, "; "), tc.wantSub) {
+			t.Errorf("%s: %v does not contain %q", tc.name, errs, tc.wantSub)
+		}
+	}
+}
+
+func TestValidateForEachRequiresWith(t *testing.T) {
+	uc := foreachUseCase()
+	uc.Spec.Steps[1].With = nil // forEach step with no with
+	errs := validateFE(uc)
+	if len(errs) == 0 || !strings.Contains(strings.Join(errs, "; "), "must declare with") {
+		t.Fatalf("expected 'must declare with' error, got %v", errs)
 	}
 }
