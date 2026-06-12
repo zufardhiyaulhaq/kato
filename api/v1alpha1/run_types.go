@@ -1,0 +1,60 @@
+package v1alpha1
+
+import (
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+type RunSpec struct {
+	UseCase string            `json:"useCase"`
+	Inputs  map[string]string `json:"inputs,omitempty"`
+}
+
+type RunStep struct {
+	Name string `json:"name"`
+	// +kubebuilder:validation:Enum=completed;skipped;failed
+	Outcome string `json:"outcome"`
+	// Reason explains skipped/failed outcomes.
+	Reason string `json:"reason,omitempty"`
+	// Outputs holds all declared outputs of the step (unfiltered).
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Outputs *apiextensionsv1.JSON `json:"outputs,omitempty"`
+	Error   string                `json:"error,omitempty"`
+}
+
+type RunStatus struct {
+	// +kubebuilder:validation:Enum=Succeeded;PartiallySucceeded;Failed
+	Phase       string       `json:"phase,omitempty"`
+	StartedAt   *metav1.Time `json:"startedAt,omitempty"`
+	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
+	Steps       []RunStep    `json:"steps,omitempty"`
+	Summary     string       `json:"summary,omitempty"`
+	// Warning is set when the summary could not be produced (LLM down, no
+	// default ModelConfig, ...) while step outputs are still valid.
+	Warning string `json:"warning,omitempty"`
+	// ModelConfig records which ModelConfig produced the summary.
+	ModelConfig string `json:"modelConfig,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="UseCase",type=string,JSONPath=`.spec.useCase`
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+type Run struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+	Spec              RunSpec   `json:"spec,omitempty"`
+	Status            RunStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+type RunList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []Run `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&Run{}, &RunList{})
+}

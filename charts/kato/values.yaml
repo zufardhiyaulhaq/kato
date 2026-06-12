@@ -1,0 +1,38 @@
+image:
+  repository: ghcr.io/zufardhiyaulhaq/kato
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+config:
+  stepTimeout: 30s
+  runTTL: 168h        # 7 days
+  maxConcurrent: 10
+  gcInterval: 1h
+
+service:
+  type: ClusterIP
+  port: 8080
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# Optionally create an initial ModelConfig and its API-key Secret.
+modelConfig:
+  enabled: false
+  name: default
+  default: true
+  baseURL: https://api.openai.com/v1
+  model: gpt-4o-mini
+  maxTokens: 2048
+  temperature: "0"
+  apiKey: ""          # if set, a Secret is created and referenced
+
+# Example UseCases are shipped under examples/usecases/ for `kubectl apply`;
+# the chart does not install them.

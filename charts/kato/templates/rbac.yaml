@@ -1,0 +1,77 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kato.name" . }}-reader
+  labels:
+    {{- include "kato.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, nodes, services, events, endpoints]
+    verbs: [get, list, watch]
+  - apiGroups: ["apps"]
+    resources: [deployments, replicasets, daemonsets]
+    verbs: [get, list, watch]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+  - apiGroups: ["networking.k8s.io"]
+    resources: [ingresses]
+    verbs: [get, list, watch]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: ["kato.zufardhiyaulhaq.com"]
+    resources: [usecases, modelconfigs]
+    verbs: [get, list, watch]
+  - apiGroups: ["kato.zufardhiyaulhaq.com"]
+    resources: [usecases/status, modelconfigs/status]
+    verbs: [update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kato.name" . }}-reader
+  labels:
+    {{- include "kato.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kato.name" . }}-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kato.name" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kato.name" . }}-runs
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kato.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["kato.zufardhiyaulhaq.com"]
+    resources: [runs]
+    verbs: [get, list, watch, create, update, delete]
+  - apiGroups: ["kato.zufardhiyaulhaq.com"]
+    resources: [runs/status]
+    verbs: [update, patch]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kato.name" . }}-runs
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kato.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kato.name" . }}-runs
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kato.name" . }}
+    namespace: {{ .Release.Namespace }}

@@ -1,0 +1,26 @@
+apiVersion: kato.zufardhiyaulhaq.com/v1alpha1
+kind: UseCase
+metadata:
+  name: service-unreachable
+spec:
+  description: "Diagnose a service with no healthy endpoints"
+  inputs:
+    - name: namespace
+      required: true
+    - name: service
+      required: true
+  steps:
+    - name: endpoints
+      method: check_service_endpoints
+      with:
+        namespace: $(inputs.namespace)
+        name: $(inputs.service)
+    - name: describe
+      method: describe_service
+      with:
+        namespace: $(inputs.namespace)
+        name: $(inputs.service)
+  summary:
+    prompt: |
+      Explain why this service has no ready endpoints (selector mismatch, no
+      ready pods) based on the endpoint counts and service spec.

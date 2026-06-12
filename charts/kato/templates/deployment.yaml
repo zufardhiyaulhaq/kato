@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kato.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kato.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kato
+  template:
+    metadata:
+      labels:
+        {{- include "kato.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "kato.name" . }}
+      containers:
+        - name: kato
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.service.port }}
+          env:
+            - name: KATO_NAMESPACE
+              value: {{ .Release.Namespace }}
+            - name: KATO_LISTEN_ADDR
+              value: ":{{ .Values.service.port }}"
+            - name: KATO_STEP_TIMEOUT
+              value: {{ .Values.config.stepTimeout | quote }}
+            - name: KATO_RUN_TTL
+              value: {{ .Values.config.runTTL | quote }}
+            - name: KATO_MAX_CONCURRENT
+              value: {{ .Values.config.maxConcurrent | quote }}
+            - name: KATO_GC_INTERVAL
+              value: {{ .Values.config.gcInterval | quote }}
+          readinessProbe:
+            httpGet: { path: /readyz, port: {{ .Values.service.port }} }
+          livenessProbe:
+            httpGet: { path: /healthz, port: {{ .Values.service.port }} }
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

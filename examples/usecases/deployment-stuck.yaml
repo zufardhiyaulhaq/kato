@@ -1,0 +1,30 @@
+apiVersion: kato.zufardhiyaulhaq.com/v1alpha1
+kind: UseCase
+metadata:
+  name: deployment-stuck
+spec:
+  description: "Diagnose a deployment that won't roll out"
+  inputs:
+    - name: namespace
+      required: true
+    - name: deployment
+      required: true
+  steps:
+    - name: status
+      method: check_deployment_status
+      with:
+        namespace: $(inputs.namespace)
+        name: $(inputs.deployment)
+    - name: replicasets
+      method: check_replicaset
+      with:
+        namespace: $(inputs.namespace)
+        deployment: $(inputs.deployment)
+    - name: events
+      method: check_events
+      with:
+        namespace: $(inputs.namespace)
+  summary:
+    prompt: |
+      Explain why this deployment is not progressing, using the replica counts,
+      ReplicaSet failures, and namespace events.

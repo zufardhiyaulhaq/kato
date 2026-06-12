@@ -1,0 +1,31 @@
+apiVersion: kato.zufardhiyaulhaq.com/v1alpha1
+kind: UseCase
+metadata:
+  name: pod-pending
+spec:
+  description: "Diagnose why a pod is stuck Pending"
+  inputs:
+    - name: namespace
+      required: true
+    - name: pod
+      required: true
+  steps:
+    - name: status
+      method: check_pod_status
+      with:
+        namespace: $(inputs.namespace)
+        name: $(inputs.pod)
+    - name: events
+      method: check_events
+      with:
+        namespace: $(inputs.namespace)
+        involvedObject: $(inputs.pod)
+    - name: describe
+      method: describe_pod
+      with:
+        namespace: $(inputs.namespace)
+        name: $(inputs.pod)
+  summary:
+    prompt: |
+      Explain why this pod is not being scheduled (resources, taints, affinity,
+      unbound PVCs) based on the events and pod spec.

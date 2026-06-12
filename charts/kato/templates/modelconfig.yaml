@@ -1,0 +1,30 @@
+{{- if .Values.modelConfig.enabled }}
+apiVersion: kato.zufardhiyaulhaq.com/v1alpha1
+kind: ModelConfig
+metadata:
+  name: {{ .Values.modelConfig.name }}
+  labels:
+    {{- include "kato.labels" . | nindent 4 }}
+spec:
+  default: {{ .Values.modelConfig.default }}
+  baseURL: {{ .Values.modelConfig.baseURL | quote }}
+  model: {{ .Values.modelConfig.model | quote }}
+  maxTokens: {{ .Values.modelConfig.maxTokens }}
+  temperature: {{ .Values.modelConfig.temperature | quote }}
+  {{- if .Values.modelConfig.apiKey }}
+  apiKeySecretRef:
+    name: {{ .Values.modelConfig.name }}-key
+    key: apiKey
+  {{- end }}
+{{- if .Values.modelConfig.apiKey }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.modelConfig.name }}-key
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+stringData:
+  apiKey: {{ .Values.modelConfig.apiKey | quote }}
+{{- end }}
+{{- end }}

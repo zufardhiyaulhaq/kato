@@ -1,0 +1,6 @@
+apiVersion: v2
+name: kato
+description: Kubernetes troubleshooting via declarative UseCase flows with AI summaries
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

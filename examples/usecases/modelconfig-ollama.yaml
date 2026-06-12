@@ -1,0 +1,10 @@
+apiVersion: kato.zufardhiyaulhaq.com/v1alpha1
+kind: ModelConfig
+metadata:
+  name: ollama-local
+spec:
+  default: true
+  baseURL: http://ollama.llm.svc:11434/v1
+  model: qwen3:14b
+  maxTokens: 2048
+  temperature: "0"
