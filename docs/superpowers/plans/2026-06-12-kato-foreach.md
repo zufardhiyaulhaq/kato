@@ -56,6 +56,7 @@
 
 `internal/methods/listoutput_test.go`:
 
+{% raw %}
 ```go
 package methods
 
@@ -103,6 +104,7 @@ func TestListOutputsOf(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
 
 - [ ] **Step 2: Run test to verify it fails**
 
