@@ -1,0 +1,43 @@
+# A ModelConfig that talks to an API-key-protected, OpenAI-compatible endpoint
+# (OpenAI here; the same shape works for Azure OpenAI, vLLM, Together, OpenRouter,
+# Anthropic via an OpenAI-compatible gateway, etc.).
+#
+# Two objects:
+#   1. a Secret holding the API key   — MUST live in kato's namespace (KATO_NAMESPACE,
+#      default "kato"), because kato reads it from its OWN namespace. ModelConfig is
+#      cluster-scoped, but the Secret it references is namespaced and kato-local.
+#   2. the ModelConfig                — cluster-scoped; points at the Secret by name+key.
+#
+# What's inside the Secret: a single entry whose VALUE is the raw API key / bearer
+# token (e.g. "sk-..."). The entry's KEY name is arbitrary — it just has to match
+# spec.apiKeySecretRef.key below. Nothing else goes in the Secret (no base URL, no
+# model — those are non-secret and live on the ModelConfig).
+#
+# Imperative alternative to the Secret manifest below:
+#   kubectl -n kato create secret generic openai-key --from-literal=apiKey=sk-xxxxx
+#
+# kato sends the key as a Bearer token to spec.baseURL. With NO default ModelConfig,
+# runs still succeed but return collected evidence with an empty summary + a warning.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: openai-key
+  namespace: kato            # must be KATO_NAMESPACE
+type: Opaque
+stringData:
+  apiKey: "sk-replace-with-your-real-openai-api-key"
+---
+apiVersion: kato.zufardhiyaulhaq.com/v1alpha1
+kind: ModelConfig
+metadata:
+  name: openai               # cluster-scoped: no namespace
+spec:
+  default: true              # used when a UseCase has no summary.modelConfigRef
+  baseURL: https://api.openai.com/v1
+  model: gpt-4o-mini
+  apiKeySecretRef:
+    name: openai-key         # Secret name in kato's namespace
+    key: apiKey              # which key inside that Secret holds the token
+  maxTokens: 2048
+  temperature: "0"           # string (CRDs forbid floats); parsed as float64

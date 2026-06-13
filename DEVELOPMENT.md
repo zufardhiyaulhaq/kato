@@ -122,14 +122,15 @@ cluster pointed at your kubeconfig:
 Besides the REST API, you can trigger a run by creating a `Run` CR directly —
 useful for GitOps. The `RunReconciler` executes any externally-created `Run`
 (one without the `kato.zufardhiyaulhaq.com/managed-by: api` label the API sets)
-exactly once and writes the result to the same `Run`'s status:
+exactly once and writes the result to the same `Run`'s status. Give it a fixed
+`metadata.name` so it works with `kubectl apply` and you can fetch it by name:
 
 ```bash
 kubectl apply -f - <<'EOF'
 apiVersion: kato.zufardhiyaulhaq.com/v1alpha1
 kind: Run
 metadata:
-  generateName: pod-crashloop-
+  name: pod-crashloop-debug
   namespace: default
 spec:
   useCase: pod-crashloop
@@ -138,13 +139,14 @@ spec:
     pod: some-pod
 EOF
 
-kubectl get run -n default                 # PHASE: Running -> Succeeded/Failed
-kubectl get run -n default <name> -o yaml  # per-step outcomes + summary
+kubectl get run -n default pod-crashloop-debug -o yaml   # per-step outcomes + summary
 ```
 
 If `spec.useCase` is missing or not Ready, or inputs are invalid, the run ends
-`Failed` with the reason in `status.note`. A `Run` is execute-once and immutable —
-to re-run, create a new one. Runs created this way are bounded by
+`Failed` with the reason in `status.note`. A `Run` is execute-once and immutable:
+re-applying the same name is a no-op, so to re-run, `kubectl delete run
+pod-crashloop-debug` first (or use a new name, or `generateName` + `kubectl create`
+for a fresh run each time). Runs created this way are bounded by
 `KATO_RUN_RECONCILE_CONCURRENCY` (separate from the API's `KATO_MAX_CONCURRENT`),
 and a run stranded in `Running` by a controller crash is reaped to `Failed` after
 `KATO_RUN_MAX_DURATION`. Note that the reaper force-fails *any* run exceeding that

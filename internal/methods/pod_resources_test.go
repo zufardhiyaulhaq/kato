@@ -45,10 +45,13 @@ func TestCheckPodResourcesSumsContainers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
+	// The sidecar sets neither a CPU nor a memory limit, so the summed limits are
+	// partial: memoryRequest can even exceed memoryLimit, and *LimitComplete=false.
 	want := Outputs{
 		"cpuRequest": "250m", "cpuLimit": "500m",
 		"memoryRequest": "128Mi", "memoryLimit": "256Mi",
-		"noLimitsSet": false,
+		"noLimitsSet":      false,
+		"cpuLimitComplete": false, "memoryLimitComplete": false,
 	}
 	for k, v := range want {
 		if out[k] != v {

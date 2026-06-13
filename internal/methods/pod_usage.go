@@ -27,7 +27,6 @@ func (checkPodUsage) OutputFields() []OutputField {
 	return []OutputField{
 		{Name: "cpuMillicores", Type: FieldInt, Description: "current CPU usage in millicores, 0 if unavailable"},
 		{Name: "memoryBytes", Type: FieldInt, Description: "current memory usage in bytes, 0 if unavailable"},
-		{Name: "memoryHuman", Type: FieldString, Description: `current memory usage, e.g. "142Mi"; "0" if unavailable`},
 		{Name: "metricsAvailable", Type: FieldBool, Description: "false if metrics-server is absent or has no data for this pod yet"},
 	}
 }
@@ -51,7 +50,7 @@ func (checkPodUsage) Run(ctx context.Context, deps Deps, params map[string]strin
 func unavailableUsage() Outputs {
 	return Outputs{
 		"cpuMillicores": int64(0), "memoryBytes": int64(0),
-		"memoryHuman": "0", "metricsAvailable": false,
+		"metricsAvailable": false,
 	}
 }
 
@@ -68,7 +67,6 @@ func usageOutputs(cpu, mem resource.Quantity) Outputs {
 	return Outputs{
 		"cpuMillicores":    cpu.MilliValue(),
 		"memoryBytes":      mem.Value(),
-		"memoryHuman":      mem.String(),
 		"metricsAvailable": true,
 	}
 }

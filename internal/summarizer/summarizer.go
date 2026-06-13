@@ -95,6 +95,13 @@ func BuildEvidence(uc *v1alpha1.UseCase, steps []engine.StepResult) string {
 // model name for a UseCase (wired in cmd/kato from ModelConfig CRs).
 type Summarizer struct {
 	Resolve func(uc *v1alpha1.UseCase) (Completer, string, error)
+	// MaxEvidenceBytes caps the assembled evidence sent to the LLM (0 = no cap).
+	// Guards against a runaway prompt (huge ConfigMap/logs) that slows the model
+	// and burns tokens.
+	MaxEvidenceBytes int
+	// Log, if set, records the prompt size before each call so the input is
+	// auditable (e.g. wired to the controller logger in cmd/kato).
+	Log func(msg string, keysAndValues ...any)
 }
 
 func (s *Summarizer) Summarize(ctx context.Context, uc *v1alpha1.UseCase, steps []engine.StepResult) (string, string, error) {
@@ -102,7 +109,18 @@ func (s *Summarizer) Summarize(ctx context.Context, uc *v1alpha1.UseCase, steps 
 	if err != nil {
 		return "", "", err
 	}
-	user := "Use case: " + uc.Spec.Summary.Prompt + "\n\nEvidence:\n" + BuildEvidence(uc, steps)
+	evidence := BuildEvidence(uc, steps)
+	fullBytes := len(evidence)
+	truncated := false
+	if s.MaxEvidenceBytes > 0 && len(evidence) > s.MaxEvidenceBytes {
+		evidence = evidence[:s.MaxEvidenceBytes] + "\n[... evidence truncated to fit budget ...]\n"
+		truncated = true
+	}
+	user := "Use case: " + uc.Spec.Summary.Prompt + "\n\nEvidence:\n" + evidence
+	if s.Log != nil {
+		s.Log("summarizing", "useCase", uc.Name, "model", model,
+			"evidenceBytes", fullBytes, "promptBytes", len(user), "truncated", truncated)
+	}
 	out, err := completer.Complete(ctx, systemPrompt, user)
 	if err != nil {
 		return "", "", err

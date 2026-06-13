@@ -6,7 +6,7 @@ metadata:
     {{- include "kato.labels" . | nindent 4 }}
 rules:
   - apiGroups: [""]
-    resources: [pods, pods/log, nodes, services, events, endpoints]
+    resources: [pods, pods/log, nodes, services, events, endpoints, configmaps]
     verbs: [get, list, watch]
   - apiGroups: ["apps"]
     resources: [deployments, replicasets, daemonsets, statefulsets]

@@ -3,3 +3,5 @@ cover.out
 *.test
 .DS_Store
 ./kato
+.env
+examples/modelconfig/modelconfig-production.yaml

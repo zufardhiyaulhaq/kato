@@ -1,6 +1,6 @@
 module github.com/zufardhiyaulhaq/kato
 
-go 1.24.10
+go 1.24.8
 
 require (
 	github.com/google/cel-go v0.23.2

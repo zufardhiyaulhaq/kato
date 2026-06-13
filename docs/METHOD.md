@@ -49,7 +49,9 @@ runtime.
 | [`check_service_endpoints`](#check_service_endpoints) | Does the service selector match ready endpoints? |
 | [`describe_service`](#describe_service) | Sanitized service manifest |
 | [`check_ingress`](#check_ingress) | Ingress rules, backend service existence, LB status |
+| [`check_configmap`](#check_configmap) | ConfigMap existence, keys, and rendered data |
 | [`list_failing_pods`](#list_failing_pods) | Failing pods of a workload (Deployment/DaemonSet/StatefulSet), worst-first — produces list output `pods` |
+| [`list_pods`](#list_pods) | All pods of a workload (Deployment/DaemonSet/StatefulSet), not-ready first — produces list output `pods` |
 
 ---
 
@@ -152,6 +154,15 @@ containers). Always available — no metrics-server required. Pair with
 | `memoryRequest` | string | summed memory request, e.g. `"256Mi"`; `"0"` if none set |
 | `memoryLimit` | string | summed memory limit; `"0"` if none set |
 | `noLimitsSet` | bool | true if no container sets any CPU or memory limit |
+| `cpuLimitComplete` | bool | true only if **every** container sets a CPU limit |
+| `memoryLimitComplete` | bool | true only if **every** container sets a memory limit |
+
+> **Reading the sums:** requests sum over *all* containers, but limits sum only
+> over containers that *set* them. In a multi-container pod (e.g. terway-eniip)
+> where one container omits a limit, the summed request can exceed the summed
+> limit — that's expected, not a reversal. `cpuLimitComplete` / `memoryLimitComplete`
+> are `false` in that case, telling you the summed limit is partial (and that some
+> container is effectively unbounded for that resource).
 
 ---
 
@@ -175,7 +186,6 @@ rather than failing.
 |---|---|---|
 | `cpuMillicores` | int | current CPU usage in millicores, 0 if unavailable |
 | `memoryBytes` | int | current memory usage in bytes, 0 if unavailable |
-| `memoryHuman` | string | current memory usage, e.g. `"142Mi"`; `"0"` if unavailable |
 | `metricsAvailable` | bool | false if metrics-server is absent or has no data for this pod yet |
 
 ---
@@ -238,14 +248,15 @@ Kubernetes events for an object or namespace, warnings first.
 |---|---|---|
 | `namespace` | yes | Namespace to read events from |
 | `involvedObject` | no | filter to events about this object name; empty = whole namespace |
+| `limit` | no | max event lines to render, warnings first (default `"20"`; `"0"` = no limit) |
 
 **Outputs**
 
 | Name | Type | Description |
 |---|---|---|
-| `events` | string | rendered event lines, warnings first |
-| `count` | int | number of events matched |
-| `warningCount` | int | number of Warning events matched |
+| `events` | string | rendered event lines, warnings first, capped at `limit` (a `[... N more events not shown ...]` marker is appended when truncated) |
+| `count` | int | number of events matched (the full count, before `limit`) |
+| `warningCount` | int | number of Warning events matched (full count) |
 
 ---
 
@@ -410,6 +421,36 @@ Ingress rules, backend service existence, LB status.
 
 ---
 
+## Config
+
+### `check_configmap`
+
+ConfigMap existence, keys, and rendered data. A missing ConfigMap is reported as
+`exists: false` (not an error), so existence is itself a usable finding.
+
+> Unlike the `describe_*` methods, ConfigMap **values are NOT redacted** (a
+> ConfigMap is non-secret by Kubernetes contract). If a ConfigMap holds anything
+> sensitive, set a step `summaryFilter` to keep `data` away from a hosted LLM.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `namespace` | yes | ConfigMap namespace |
+| `name` | yes | ConfigMap name |
+| `keys` | no | comma-separated key names to render in `data` (default: all keys). The `keys`/`keyCount` outputs still describe every key present, so a missing key stays visible. |
+
+**Outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `exists` | bool | ConfigMap exists |
+| `keyCount` | int | number of keys (`data` + `binaryData`), all keys |
+| `keys` | string | comma-separated key names, sorted, all keys |
+| `data` | string | rendered `key:\n<value>` blocks for the selected keys (values not redacted), truncated if large; binary keys rendered as `<N binary bytes>` |
+
+---
+
 ## Discovery
 
 ### `list_failing_pods`
@@ -445,6 +486,44 @@ Produces a **list output** (`pods`) consumable only by a `forEach` step.
 | `name` | string | pod name |
 | `reason` | string | dominant failure reason (e.g. `CrashLoopBackOff`, `OOMKilled`) |
 | `restartCount` | int | max restartCount across the pod's containers |
+
+Reference the list from a `forEach` step: `forEach: $(steps.<step>.pods)`, then
+bind `$(item.namespace)` / `$(item.name)` in the step's `with`.
+
+---
+
+### `list_pods`
+
+All pods of a workload (Deployment / DaemonSet / StatefulSet), not-ready first.
+Produces a **list output** (`pods`) consumable only by a `forEach` step. Unlike
+`list_failing_pods`, this includes healthy/running pods — use it to fan out checks
+(e.g. `check_pod_resources` + `check_pod_usage`) over every pod regardless of
+health, so resourcing can be assessed for pods that are not failing.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `namespace` | yes | workload namespace |
+| `kind` | yes | `Deployment` \| `DaemonSet` \| `StatefulSet` |
+| `name` | yes | workload name |
+
+**Scalar outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `count` | int | number of pods owned by the workload |
+| `notReadyCount` | int | pods whose Ready condition is not True |
+
+**List output `pods`** (items sorted not-ready first, then by `restartCount`)
+
+| Item field | Type | Description |
+|---|---|---|
+| `namespace` | string | pod namespace |
+| `name` | string | pod name |
+| `ready` | bool | Ready condition is True |
+| `restartCount` | int | max restartCount across the pod's containers |
+| `node` | string | scheduled node, `""` if unscheduled |
 
 Reference the list from a `forEach` step: `forEach: $(steps.<step>.pods)`, then
 bind `$(item.namespace)` / `$(item.name)` in the step's `with`.

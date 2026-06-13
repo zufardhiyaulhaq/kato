@@ -14,6 +14,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/zufardhiyaulhaq/kato/api/v1alpha1"
 	"github.com/zufardhiyaulhaq/kato/internal/config"
@@ -38,7 +39,13 @@ func run() error {
 	log := ctrl.Log.WithName("kato")
 
 	restCfg := ctrl.GetConfigOrDie()
-	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{})
+	// Disable controller-runtime's built-in metrics server: its default bind
+	// address is :8080, which collides with kato's own HTTP server (and would
+	// crash the manager on startup). kato exposes /healthz, /readyz, and the REST
+	// API on KATO_LISTEN_ADDR itself, so the manager's metrics endpoint is unused.
+	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
+		Metrics: metricsserver.Options{BindAddress: "0"},
+	})
 	if err != nil {
 		return fmt.Errorf("create manager: %w", err)
 	}
@@ -76,6 +83,7 @@ func run() error {
 	reg := methods.Builtin()
 	ucCache := controller.NewUseCaseCache()
 	mcCache := controller.NewModelConfigCache()
+	mcCache.LLMTimeout = cfg.LLMTimeout
 	mcCache.APIKeyLookup = func(ctx context.Context, name, key string) (string, error) {
 		var sec corev1.Secret
 		if err := directClient.Get(ctx, types.NamespacedName{Namespace: cfg.Namespace, Name: name}, &sec); err != nil {
@@ -99,7 +107,11 @@ func run() error {
 		return fmt.Errorf("setup modelconfig controller: %w", err)
 	}
 
-	sum := &summarizer.Summarizer{Resolve: mcCache.Resolve}
+	sum := &summarizer.Summarizer{
+		Resolve:          mcCache.Resolve,
+		MaxEvidenceBytes: cfg.MaxEvidenceBytes,
+		Log:              func(msg string, kv ...any) { log.Info(msg, kv...) },
+	}
 	eng := &engine.Engine{
 		Deps:      methods.Deps{Kube: kubeClient, Metrics: metricsClient},
 		Registry:  reg,

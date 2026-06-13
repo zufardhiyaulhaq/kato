@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/zufardhiyaulhaq/kato/api/v1alpha1"
 	"github.com/zufardhiyaulhaq/kato/internal/summarizer"
@@ -17,6 +18,8 @@ type ModelConfigCache struct {
 	mu           sync.RWMutex
 	items        map[string]*v1alpha1.ModelConfig
 	APIKeyLookup func(ctx context.Context, name, key string) (string, error)
+	// LLMTimeout caps each completion request; 0 -> the client's default.
+	LLMTimeout time.Duration
 }
 
 func NewModelConfigCache() *ModelConfigCache {
@@ -97,6 +100,6 @@ func (c *ModelConfigCache) Resolve(uc *v1alpha1.UseCase) (summarizer.Completer, 
 	}
 	return &summarizerClient{client: &summarizer.OpenAIClient{
 		BaseURL: chosen.Spec.BaseURL, Model: chosen.Spec.Model, APIKey: apiKey,
-		MaxTokens: chosen.Spec.MaxTokens, Temperature: temp,
+		MaxTokens: chosen.Spec.MaxTokens, Temperature: temp, Timeout: c.LLMTimeout,
 	}}, chosen.Name, nil
 }

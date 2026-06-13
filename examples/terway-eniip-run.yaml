@@ -1,0 +1,7 @@
+apiVersion: kato.zufardhiyaulhaq.com/v1alpha1
+kind: Run
+metadata:
+  name: terway-eniip-check
+  namespace: infrastructure
+spec:
+  useCase: terway-eniip-daemonset

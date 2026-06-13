@@ -1,7 +1,7 @@
-# A Run with a fixed name (metadata.name instead of generateName). A fixed name
-# is convenient for GitOps, but because a Run is execute-once, re-applying the
-# same name will NOT re-run it — delete it first, or use generateName for a fresh
-# run each time. Requires the deployment-stuck UseCase to be applied and Ready.
+# A Run with a fixed metadata.name — the recommended form: it works with
+# `kubectl apply` and you can fetch it by name. Because a Run is execute-once,
+# re-applying the same name is a no-op (it won't re-run); delete it first to re-run,
+# or use a new name. Requires the deployment-stuck UseCase to be applied and Ready.
 apiVersion: kato.zufardhiyaulhaq.com/v1alpha1
 kind: Run
 metadata:

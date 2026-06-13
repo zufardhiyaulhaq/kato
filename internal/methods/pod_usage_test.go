@@ -36,9 +36,6 @@ func TestSumPodUsageAndOutputs(t *testing.T) {
 	if out["memoryBytes"] != int64(142*1024*1024) { // 100Mi + 42Mi
 		t.Errorf("memoryBytes = %v, want %d", out["memoryBytes"], 142*1024*1024)
 	}
-	if out["memoryHuman"] != "142Mi" {
-		t.Errorf("memoryHuman = %v, want 142Mi", out["memoryHuman"])
-	}
 }
 
 func TestCheckPodUsageNoMetricsServer(t *testing.T) {

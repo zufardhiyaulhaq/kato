@@ -22,6 +22,10 @@ type Config struct {
 	// RunMaxDuration is the staleness threshold after which a Run stuck in
 	// Running (controller crashed mid-run) is reaped to Failed.
 	RunMaxDuration time.Duration
+	// LLMTimeout caps each summary call to the (OpenAI-compatible) LLM endpoint.
+	LLMTimeout time.Duration
+	// MaxEvidenceBytes caps the assembled evidence sent to the LLM (0 = no cap).
+	MaxEvidenceBytes int
 }
 
 func Load() Config {
@@ -35,6 +39,8 @@ func Load() Config {
 
 		RunReconcileConcurrency: getInt("KATO_RUN_RECONCILE_CONCURRENCY", 2),
 		RunMaxDuration:          getDuration("KATO_RUN_MAX_DURATION", time.Hour),
+		LLMTimeout:              getDuration("KATO_LLM_TIMEOUT", 120*time.Second),
+		MaxEvidenceBytes:        getInt("KATO_MAX_EVIDENCE_BYTES", 0),
 	}
 }
 

@@ -159,4 +159,24 @@ func TestRunReconciler(t *testing.T) {
 	if getRun(t, ctx, c, "default", "running-1").Status.Phase != engine.PhaseRunning {
 		t.Fatal("running-1 phase changed")
 	}
+
+	// generateName (no metadata.name): the API server mints a concrete name at
+	// create time, and the reconciler executes that generated name normally — the
+	// kubectl-create / GitOps path the examples use.
+	genRun := &v1alpha1.Run{
+		ObjectMeta: metav1.ObjectMeta{GenerateName: "gen-", Namespace: "default"},
+		Spec:       v1alpha1.RunSpec{UseCase: "uc-ready"},
+	}
+	if err := c.Create(ctx, genRun); err != nil {
+		t.Fatal(err)
+	}
+	if genRun.Name == "" {
+		t.Fatal("server did not assign a name from generateName")
+	}
+	if _, err := rec.Reconcile(ctx, runReq("default", genRun.Name)); err != nil {
+		t.Fatal(err)
+	}
+	if got := getRun(t, ctx, c, "default", genRun.Name); got.Status.Phase != engine.PhaseSucceeded {
+		t.Fatalf("generateName run not executed: name=%q status=%+v", genRun.Name, got.Status)
+	}
 }

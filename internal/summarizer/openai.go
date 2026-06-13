@@ -14,12 +14,18 @@ import (
 
 // OpenAIClient talks to any OpenAI-compatible /chat/completions endpoint
 // (OpenAI, Ollama, vLLM, Azure, OpenRouter) — spec §8.
+// defaultLLMTimeout is the request timeout when none is configured. Generous,
+// because non-streaming endpoints (e.g. DashScope coding/reasoning models) only
+// send response headers after the full completion is generated.
+const defaultLLMTimeout = 120 * time.Second
+
 type OpenAIClient struct {
 	BaseURL     string // e.g. https://api.openai.com/v1
 	Model       string
 	APIKey      string // optional; omitted -> no Authorization header
 	MaxTokens   int
 	Temperature float64
+	Timeout     time.Duration // per-request timeout; 0 -> defaultLLMTimeout
 	HTTPClient  *http.Client
 }
 
@@ -27,7 +33,11 @@ func (c *OpenAIClient) httpClient() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
-	return &http.Client{Timeout: 60 * time.Second}
+	t := c.Timeout
+	if t <= 0 {
+		t = defaultLLMTimeout
+	}
+	return &http.Client{Timeout: t}
 }
 
 type chatMessage struct {
