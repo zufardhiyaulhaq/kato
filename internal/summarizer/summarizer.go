@@ -102,6 +102,11 @@ type Summarizer struct {
 	// Log, if set, records the prompt size before each call so the input is
 	// auditable (e.g. wired to the controller logger in cmd/kato).
 	Log func(msg string, keysAndValues ...any)
+	// DebugLog, if set, dumps the FULL request sent to the LLM (the exact
+	// system+user messages, as JSON) before each call. Intended for a
+	// debug-verbosity logger (wired to log.V(1) in cmd/kato), so it is off in
+	// production; nil disables it.
+	DebugLog func(msg string, keysAndValues ...any)
 }
 
 func (s *Summarizer) Summarize(ctx context.Context, uc *v1alpha1.UseCase, steps []engine.StepResult) (string, string, error) {
@@ -120,6 +125,13 @@ func (s *Summarizer) Summarize(ctx context.Context, uc *v1alpha1.UseCase, steps 
 	if s.Log != nil {
 		s.Log("summarizing", "useCase", uc.Name, "model", model,
 			"evidenceBytes", fullBytes, "promptBytes", len(user), "truncated", truncated)
+	}
+	if s.DebugLog != nil {
+		messages, _ := json.MarshalIndent([]chatMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: user},
+		}, "", "  ")
+		s.DebugLog("llm request", "useCase", uc.Name, "model", model, "messages", string(messages))
 	}
 	out, err := completer.Complete(ctx, systemPrompt, user)
 	if err != nil {

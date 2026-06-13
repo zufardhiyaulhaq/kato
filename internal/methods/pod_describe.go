@@ -32,6 +32,14 @@ func (describePod) OutputFields() []OutputField {
 		{Name: "serviceAccount", Type: FieldString, Description: `pod's service account, "" if default`},
 		{Name: "volumes", Type: FieldString, Description: `comma-separated volume names, "" if none`},
 		{Name: "manifest", Type: FieldString, Description: "full YAML manifest; env values redacted, managedFields stripped"},
+		{Name: "nodeName", Type: FieldString, Description: `scheduled node, "" if unscheduled`},
+		{Name: "conditions", Type: FieldString, Description: "PodScheduled/Initialized/ContainersReady/Ready as Type=Status (Reason)"},
+		{Name: "probes", Type: FieldString, Description: "per-container liveness/readiness/startup probe summary"},
+		{Name: "ownerReferences", Type: FieldString, Description: `controllers owning the pod, e.g. "ReplicaSet/api-abc"`},
+		{Name: "nodeSelector", Type: FieldString, Description: `pod nodeSelector, "" if none`},
+		{Name: "tolerations", Type: FieldString, Description: `pod tolerations, "" if none`},
+		{Name: "priorityClassName", Type: FieldString, Description: `priority class, "" if none`},
+		{Name: "hostNetwork", Type: FieldBool, Description: "pod uses host network"},
 	}
 }
 
@@ -53,14 +61,22 @@ func (describePod) Run(ctx context.Context, deps Deps, params map[string]string)
 		return nil, fmt.Errorf("marshal pod: %w", err)
 	}
 	return Outputs{
-		"containers":       containerNames(pod.Spec.Containers),
-		"images":           containerImages(pod.Spec.Containers),
-		"resourceRequests": renderResourceList(pod.Spec.Containers, false),
-		"resourceLimits":   renderResourceList(pod.Spec.Containers, true),
-		"restartPolicy":    string(pod.Spec.RestartPolicy),
-		"serviceAccount":   pod.Spec.ServiceAccountName,
-		"volumes":          volumeNames(pod.Spec.Volumes),
-		"manifest":         Truncate(string(y), defaultLogBytes),
+		"containers":        containerNames(pod.Spec.Containers),
+		"images":            containerImages(pod.Spec.Containers),
+		"resourceRequests":  renderResourceList(pod.Spec.Containers, false),
+		"resourceLimits":    renderResourceList(pod.Spec.Containers, true),
+		"restartPolicy":     string(pod.Spec.RestartPolicy),
+		"serviceAccount":    pod.Spec.ServiceAccountName,
+		"volumes":           volumeNames(pod.Spec.Volumes),
+		"manifest":          Truncate(string(y), defaultLogBytes),
+		"nodeName":          pod.Spec.NodeName,
+		"conditions":        renderPodConditions(pod.Status.Conditions),
+		"probes":            renderProbes(pod.Spec.Containers),
+		"ownerReferences":   renderOwnerRefs(pod.OwnerReferences),
+		"nodeSelector":      renderKVMap(pod.Spec.NodeSelector),
+		"tolerations":       renderTolerations(pod.Spec.Tolerations),
+		"priorityClassName": pod.Spec.PriorityClassName,
+		"hostNetwork":       pod.Spec.HostNetwork,
 	}, nil
 }
 

@@ -24,6 +24,13 @@ func (describeNode) OutputFields() []OutputField {
 		{Name: "allocatableCPU", Type: FieldString, Description: "allocatable CPU quantity"},
 		{Name: "allocatableMemory", Type: FieldString, Description: "allocatable memory quantity"},
 		{Name: "manifest", Type: FieldString, Description: "sanitized YAML manifest"},
+		{Name: "kubeletVersion", Type: FieldString, Description: "status.nodeInfo.kubeletVersion"},
+		{Name: "osImage", Type: FieldString, Description: "status.nodeInfo.osImage"},
+		{Name: "kernelVersion", Type: FieldString, Description: "status.nodeInfo.kernelVersion"},
+		{Name: "containerRuntime", Type: FieldString, Description: "status.nodeInfo.containerRuntimeVersion"},
+		{Name: "capacityPods", Type: FieldString, Description: "status.capacity.pods (scheduling ceiling)"},
+		{Name: "unschedulable", Type: FieldBool, Description: "spec.unschedulable (cordoned)"},
+		{Name: "conditions", Type: FieldString, Description: "node conditions as Type=Status (Reason)"},
 	}
 }
 
@@ -48,6 +55,13 @@ func (describeNode) Run(ctx context.Context, deps Deps, params map[string]string
 		"allocatableCPU":    n.Status.Allocatable.Cpu().String(),
 		"allocatableMemory": n.Status.Allocatable.Memory().String(),
 		"manifest":          Truncate(string(y), defaultLogBytes),
+		"kubeletVersion":    node.Status.NodeInfo.KubeletVersion,
+		"osImage":           node.Status.NodeInfo.OSImage,
+		"kernelVersion":     node.Status.NodeInfo.KernelVersion,
+		"containerRuntime":  node.Status.NodeInfo.ContainerRuntimeVersion,
+		"capacityPods":      node.Status.Capacity.Pods().String(),
+		"unschedulable":     node.Spec.Unschedulable,
+		"conditions":        renderNodeConditions(node.Status.Conditions),
 	}, nil
 }
 

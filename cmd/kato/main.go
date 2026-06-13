@@ -111,6 +111,7 @@ func run() error {
 		Resolve:          mcCache.Resolve,
 		MaxEvidenceBytes: cfg.MaxEvidenceBytes,
 		Log:              func(msg string, kv ...any) { log.Info(msg, kv...) },
+		DebugLog:         func(msg string, kv ...any) { log.V(1).Info(msg, kv...) },
 	}
 	eng := &engine.Engine{
 		Deps:      methods.Deps{Kube: kubeClient, Metrics: metricsClient},

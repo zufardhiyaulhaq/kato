@@ -9,6 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/utils/ptr"
 )
@@ -140,5 +141,51 @@ func TestCheckReplicaSet(t *testing.T) {
 	}
 	if !strings.Contains(out["failureMessage"].(string), "exceeded quota") {
 		t.Errorf("failureMessage = %q", out["failureMessage"])
+	}
+}
+
+func TestDescribeDeploymentRolloutFields(t *testing.T) {
+	ms := intstr.FromString("25%")
+	mu := intstr.FromInt(1)
+	d := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: i32(3),
+			Paused:   true,
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Strategy: appsv1.DeploymentStrategy{
+				Type:          appsv1.RollingUpdateDeploymentStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDeployment{MaxSurge: &ms, MaxUnavailable: &mu},
+			},
+			Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+				NodeSelector: map[string]string{"tier": "be"},
+				Containers: []corev1.Container{{
+					Name: "api", Image: "api:v1",
+					LivenessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{
+						HTTPGet: &corev1.HTTPGetAction{Port: intstr.FromInt(8080), Path: "/live"}}},
+				}},
+			}},
+		},
+	}
+	client := fake.NewSimpleClientset(d)
+	m, _ := Builtin().Get("describe_deployment")
+	out, err := m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "default", "name": "api"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	checks := map[string]any{
+		"replicas":       int64(3),
+		"paused":         true,
+		"selector":       "app=api",
+		"maxSurge":       "25%",
+		"maxUnavailable": "1",
+		"nodeSelector":   "tier=be",
+		"probes":         "api: liveness=httpGet:8080/live readiness=— startup=—",
+	}
+	for f, want := range checks {
+		if out[f] != want {
+			t.Errorf("%s = %v, want %v", f, out[f], want)
+		}
 	}
 }

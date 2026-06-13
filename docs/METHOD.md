@@ -46,11 +46,17 @@ runtime.
 | [`describe_deployment`](#describe_deployment) | Sanitized deployment manifest + structured fields |
 | [`check_replicaset`](#check_replicaset) | State of the ReplicaSets owned by a deployment |
 | [`check_daemonset_status`](#check_daemonset_status) | DaemonSet scheduling and readiness counts |
+| [`describe_daemonset`](#describe_daemonset) | Sanitized daemonset manifest + structured fields (update strategy, node targeting) |
+| [`check_statefulset_status`](#check_statefulset_status) | StatefulSet replica counts and rollout state |
+| [`describe_statefulset`](#describe_statefulset) | Sanitized statefulset manifest + structured fields (serviceName, partition, volumeClaimTemplates) |
 | [`check_hpa`](#check_hpa) | HPA replica bounds, current scale, metrics, and scaling conditions |
 | [`check_service_endpoints`](#check_service_endpoints) | Does the service selector match ready endpoints? |
 | [`describe_service`](#describe_service) | Sanitized service manifest |
 | [`check_ingress`](#check_ingress) | Ingress rules, backend service existence, LB status |
 | [`check_configmap`](#check_configmap) | ConfigMap existence, keys, and rendered data |
+| [`check_pvc`](#check_pvc) | PersistentVolumeClaim binding status (phase, capacity, bound PV) |
+| [`check_job`](#check_job) | Job completion/failure counts and conditions |
+| [`check_cronjob`](#check_cronjob) | CronJob schedule, suspension, and recent-run times |
 | [`list_failing_pods`](#list_failing_pods) | Failing pods of a workload (Deployment/DaemonSet/StatefulSet), worst-first — produces list output `pods` |
 | [`list_pods`](#list_pods) | All pods of a workload (Deployment/DaemonSet/StatefulSet), not-ready first — produces list output `pods` |
 
@@ -98,12 +104,13 @@ Container logs (optionally previous instance).
 | `container` | no | container name; empty = first container |
 | `previous` | no | `"true"` to fetch the previous instance's logs |
 | `tailLines` | no | max lines from the end (integer); **defaults to 10** |
+| `maxLineLength` | no | max characters per line; longer lines are trimmed with a `…[+N chars]` marker (default `1000`; `0` = unlimited) |
 
 **Outputs**
 
 | Name | Type | Description |
 |---|---|---|
-| `logs` | string | log text, truncated head+tail if large |
+| `logs` | string | log text; each line trimmed to `maxLineLength`, whole blob truncated head+tail if large |
 
 ---
 
@@ -130,6 +137,14 @@ Sanitized pod manifest (spec+status), with structured fields broken out.
 | `serviceAccount` | string | pod's service account, `""` if default |
 | `volumes` | string | comma-separated volume names, `""` if none |
 | `manifest` | string | full YAML manifest; env values redacted, managedFields stripped |
+| `nodeName` | string | scheduled node, `""` if unscheduled |
+| `conditions` | string | PodScheduled/Initialized/ContainersReady/Ready as `Type=Status (Reason)` |
+| `probes` | string | per-container liveness/readiness/startup probe summary |
+| `ownerReferences` | string | controllers owning the pod, e.g. `"ReplicaSet/api-abc"` |
+| `nodeSelector` | string | pod nodeSelector, `""` if none |
+| `tolerations` | string | pod tolerations, `""` if none |
+| `priorityClassName` | string | priority class, `""` if none |
+| `hostNetwork` | bool | pod uses host network |
 
 ---
 
@@ -235,6 +250,13 @@ Node capacity, allocatable, taints, manifest.
 | `allocatableCPU` | string | allocatable CPU quantity |
 | `allocatableMemory` | string | allocatable memory quantity |
 | `manifest` | string | sanitized YAML manifest |
+| `kubeletVersion` | string | `status.nodeInfo.kubeletVersion` |
+| `osImage` | string | `status.nodeInfo.osImage` |
+| `kernelVersion` | string | `status.nodeInfo.kernelVersion` |
+| `containerRuntime` | string | `status.nodeInfo.containerRuntimeVersion` |
+| `capacityPods` | string | `status.capacity.pods` (scheduling ceiling) |
+| `unschedulable` | bool | `spec.unschedulable` (cordoned) |
+| `conditions` | string | node conditions as `Type=Status (Reason)` |
 
 ---
 
@@ -251,12 +273,13 @@ Kubernetes events for an object or namespace, warnings first.
 | `namespace` | yes | Namespace to read events from |
 | `involvedObject` | no | filter to events about this object name; empty = whole namespace |
 | `limit` | no | max event lines to render, warnings first (default `"20"`; `"0"` = no limit) |
+| `maxLineLength` | no | max characters per rendered line; longer lines are trimmed with a `…[+N chars]` marker (default `1000`; `0` = unlimited) |
 
 **Outputs**
 
 | Name | Type | Description |
 |---|---|---|
-| `events` | string | rendered event lines, warnings first, capped at `limit` (a `[... N more events not shown ...]` marker is appended when truncated) |
+| `events` | string | rendered event lines, warnings first, capped at `limit` (a `[... N more events not shown ...]` marker is appended when truncated); each line trimmed to `maxLineLength` |
 | `count` | int | number of events matched (the full count, before `limit`) |
 | `warningCount` | int | number of Warning events matched (full count) |
 
@@ -311,6 +334,16 @@ from the pod template.
 | `strategy` | string | `RollingUpdate\|Recreate` |
 | `serviceAccount` | string | pod template's service account, `""` if default |
 | `manifest` | string | full YAML manifest; env values redacted, managedFields stripped |
+| `replicas` | int | `spec.replicas` (1 if unset) |
+| `selector` | string | `spec.selector` matchLabels |
+| `maxSurge` | string | RollingUpdate maxSurge, `""` for Recreate |
+| `maxUnavailable` | string | RollingUpdate maxUnavailable, `""` for Recreate |
+| `minReadySeconds` | int | `spec.minReadySeconds` |
+| `revisionHistoryLimit` | int | `spec.revisionHistoryLimit`, `-1` if unset |
+| `paused` | bool | `spec.paused` |
+| `probes` | string | per-container probe summary (pod template) |
+| `nodeSelector` | string | pod template nodeSelector |
+| `tolerations` | string | pod template tolerations |
 
 ---
 
@@ -357,6 +390,90 @@ DaemonSet scheduling and readiness counts.
 | `available` | int | pods available (`status.numberAvailable`) |
 | `misscheduled` | int | pods running where they should not be (`status.numberMisscheduled`) |
 | `updatedScheduled` | int | pods on the updated template (`status.updatedNumberScheduled`) |
+
+---
+
+### `describe_daemonset`
+
+Sanitized daemonset manifest (spec+status), with structured fields broken out from the pod template.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `namespace` | yes | DaemonSet namespace |
+| `name` | yes | DaemonSet name |
+
+**Outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `containers` | string | comma-separated container names (pod template) |
+| `images` | string | comma-separated container images (pod template) |
+| `resourceRequests` | string | per-container CPU/memory requests, e.g. `"app: cpu=100m mem=128Mi"`; `""` if none set |
+| `resourceLimits` | string | per-container CPU/memory limits; `""` if none set |
+| `serviceAccount` | string | pod template's service account, `""` if default |
+| `selector` | string | `spec.selector` matchLabels |
+| `updateStrategy` | string | `RollingUpdate\|OnDelete` |
+| `maxUnavailable` | string | RollingUpdate maxUnavailable, `""` for OnDelete |
+| `nodeSelector` | string | pod template nodeSelector (which nodes the DS targets) |
+| `tolerations` | string | pod template tolerations |
+| `probes` | string | per-container probe summary |
+| `manifest` | string | full YAML manifest; env values redacted, managedFields stripped |
+
+---
+
+### `check_statefulset_status`
+
+StatefulSet replica counts and rollout state.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `namespace` | yes | StatefulSet namespace |
+| `name` | yes | StatefulSet name |
+
+**Outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `desiredReplicas` | int | `spec.replicas` (1 if unset) |
+| `readyReplicas` | int | `status.readyReplicas` |
+| `currentReplicas` | int | `status.currentReplicas` |
+| `updatedReplicas` | int | `status.updatedReplicas` |
+| `availableReplicas` | int | `status.availableReplicas` |
+| `updateRevisionPending` | bool | `currentRevision != updateRevision` (rollout in flight) |
+
+---
+
+### `describe_statefulset`
+
+Sanitized statefulset manifest (spec+status), with structured fields broken out from the pod template.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `namespace` | yes | StatefulSet namespace |
+| `name` | yes | StatefulSet name |
+
+**Outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `containers` | string | comma-separated container names (pod template) |
+| `images` | string | comma-separated container images (pod template) |
+| `resourceRequests` | string | per-container CPU/memory requests, e.g. `"app: cpu=100m mem=128Mi"`; `""` if none set |
+| `resourceLimits` | string | per-container CPU/memory limits; `""` if none set |
+| `serviceAccount` | string | pod template's service account, `""` if default |
+| `selector` | string | `spec.selector` matchLabels |
+| `serviceName` | string | governing headless service (`spec.serviceName`) |
+| `updateStrategy` | string | `RollingUpdate\|OnDelete` |
+| `partition` | int | RollingUpdate partition (canary cutoff), `-1` if unset |
+| `podManagementPolicy` | string | `OrderedReady\|Parallel` |
+| `volumeClaimTemplates` | string | per template `"name: size (storageClass)"`, `""` if none |
+| `manifest` | string | full YAML manifest; env values redacted, managedFields stripped |
 
 ---
 
@@ -414,7 +531,7 @@ Does the service selector match ready endpoints?
 
 ### `describe_service`
 
-Sanitized service manifest.
+Sanitized service manifest, with structured fields broken out.
 
 **Inputs**
 
@@ -427,6 +544,12 @@ Sanitized service manifest.
 
 | Name | Type | Description |
 |---|---|---|
+| `type` | string | `ClusterIP\|NodePort\|LoadBalancer\|ExternalName` |
+| `clusterIP` | string | cluster IP, `"None"` for headless, `""` if unset |
+| `selector` | string | pod selector, `""` if selector-less |
+| `ports` | string | rendered `port→targetPort/Protocol` list |
+| `externalName` | string | `spec.externalName`, `""` unless type ExternalName |
+| `loadBalancerIngress` | string | LB IP/hostname(s), `""` if none/pending |
 | `manifest` | string | YAML manifest, managedFields stripped |
 
 ---
@@ -482,6 +605,89 @@ ConfigMap existence, keys, and rendered data. A missing ConfigMap is reported as
 
 ---
 
+## Storage
+
+### `check_pvc`
+
+PersistentVolumeClaim binding status. A missing PVC is reported as `exists: false` (not an error), so existence is itself a usable finding.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `namespace` | yes | PVC namespace |
+| `name` | yes | PVC name |
+
+**Outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `exists` | bool | PVC exists |
+| `phase` | string | `Pending\|Bound\|Lost`, `""` if not exists |
+| `storageClass` | string | `spec.storageClassName`, `""` if nil/default |
+| `requestedStorage` | string | `spec.resources.requests.storage` |
+| `capacity` | string | `status.capacity.storage` (actual), `""` if unbound |
+| `volumeName` | string | bound PV name, `""` if unbound |
+| `accessModes` | string | comma-separated access modes |
+| `volumeMode` | string | `Filesystem\|Block` |
+
+---
+
+## Batch
+
+### `check_job`
+
+Job completion and failure status. A missing Job is reported as `exists: false` (not an error), so existence is itself a usable finding.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `namespace` | yes | Job namespace |
+| `name` | yes | Job name |
+
+**Outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `exists` | bool | Job exists |
+| `active` | int | `status.active` |
+| `succeeded` | int | `status.succeeded` |
+| `failed` | int | `status.failed` |
+| `completions` | int | `spec.completions`, `-1` if unset |
+| `parallelism` | int | `spec.parallelism`, `1` if unset |
+| `backoffLimit` | int | `spec.backoffLimit`, `6` if unset (k8s default) |
+| `complete` | bool | Complete condition is True |
+| `failedCondition` | bool | Failed condition is True |
+| `conditionReason` | string | e.g. `BackoffLimitExceeded`, `DeadlineExceeded`, `""` if none |
+
+---
+
+### `check_cronjob`
+
+CronJob schedule and recent run status. A missing CronJob is reported as `exists: false` (not an error), so existence is itself a usable finding.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `namespace` | yes | CronJob namespace |
+| `name` | yes | CronJob name |
+
+**Outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `exists` | bool | CronJob exists |
+| `schedule` | string | `spec.schedule` (cron expression) |
+| `suspended` | bool | `spec.suspend` |
+| `activeJobs` | int | number of currently active jobs |
+| `lastScheduleTime` | string | RFC3339, `""` if never scheduled |
+| `lastSuccessfulTime` | string | RFC3339, `""` if never succeeded |
+| `concurrencyPolicy` | string | `Allow\|Forbid\|Replace` |
+
+---
+
 ## Discovery
 
 ### `list_failing_pods`
@@ -499,7 +705,7 @@ Produces a **list output** (`pods`) consumable only by a `forEach` step.
 | `minRestarts` | no | only include pods with restartCount ≥ this (default 0) |
 | `includeCrashLoop` | no | count `CrashLoopBackOff` pods (default `true`) |
 | `includeImagePull` | no | count `ImagePullBackOff`/`ErrImagePull`/`CreateContainerError` (default `true`) |
-| `includeOOM` | no | count `OOMKilled` / non-zero last-exit pods (default `true`) |
+| `includeOOM` | no | count **not-ready** pods whose last termination was `OOMKilled` / non-zero exit (default `true`). A recovered pod (now Running + Ready) is not counted on its historical `lastState` alone. |
 | `includeNotReady` | no | count any not-Ready pod (default `false`) |
 
 **Scalar outputs**

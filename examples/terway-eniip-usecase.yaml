@@ -29,12 +29,23 @@ spec:
         namespace: kube-system
         name: terway-eniip
 
+    # Scheduling coverage: a CNI must tolerate node taints and target every node.
+    # Missing tolerations or a restrictive nodeSelector explain pods missing /
+    # NotReady on some nodes.
+    - name: daemonset-describe
+      method: describe_daemonset
+      with:
+        namespace: kube-system
+        name: terway-eniip
+      summaryFilter: [updateStrategy, maxUnavailable, nodeSelector, tolerations]
+
     - name: events
       method: check_events
       with:
         namespace: kube-system
         involvedObject: terway-eniip
         limit: "5"
+        maxLineLength: "200"
       summaryFilter: [events, warningCount]
 
     - name: eni-config
@@ -61,7 +72,7 @@ spec:
 
     - name: pod-status
       forEach: $(steps.failing.pods)
-      maxItems: 2
+      maxItems: 1
       when: $(steps.failing.anyFailing)
       method: check_pod_status
       with:
@@ -70,13 +81,14 @@ spec:
 
     - name: pod-events
       forEach: $(steps.failing.pods)
-      maxItems: 2
+      maxItems: 1
       when: $(steps.failing.anyFailing)
       method: check_events
       with:
         namespace: $(item.namespace)
         involvedObject: $(item.name)
         limit: "5"
+        maxLineLength: "200"
       summaryFilter: [events, warningCount]
 
     - name: pod-describe
@@ -87,23 +99,24 @@ spec:
       with:
         namespace: $(item.namespace)
         name: $(item.name)
-      summaryFilter: [containers, images, volumes]
+      summaryFilter: [containers, images, volumes, nodeName, conditions]
 
     - name: pod-logs
       forEach: $(steps.failing.pods)
-      maxItems: 2
+      maxItems: 1
       when: $(steps.failing.anyFailing)
       method: check_pod_logs
       with:
         namespace: $(item.namespace)
         name: $(item.name)
         container: terway
-        tailLines: "20"
+        tailLines: "10"
+        maxLineLength: "200"
       summaryFilter: [logs]
 
     - name: pod-previous-logs
       forEach: $(steps.failing.pods)
-      maxItems: 2
+      maxItems: 1
       when: $(steps.failing.anyFailing)
       method: check_pod_logs
       with:
@@ -111,7 +124,8 @@ spec:
         name: $(item.name)
         container: terway
         previous: "true"
-        tailLines: "20"
+        tailLines: "10"
+        maxLineLength: "200"
       summaryFilter: [logs]
 
     - name: pods
@@ -139,12 +153,11 @@ spec:
       summaryFilter: [containers, metricsAvailable]
   summary:
     prompt: |
-      From the evidence, give the most likely root cause and a concrete fix for the
-      terway-eniip CNI DaemonSet (kube-system). If nothing is failing, say it looks
-      healthy and summarize the counts.
-
-      Look for: ENI/IP allocation errors (IpNotEnough, vSwitch/quota exhausted);
-      pods NotReady from incomplete setup; terway OOMKilled or CrashLoopBackOff;
-      a missing/malformed eni-config ConfigMap; the Service having no ready endpoints.
+      Root-cause and fix the terway-eniip CNI DaemonSet (kube-system); if healthy,
+      say so and summarize the counts. Watch for: ENI/IP allocation errors
+      (IpNotEnough, vSwitch/quota exhausted), OOMKilled/CrashLoopBackOff, a
+      missing/malformed eni-config, no ready endpoints, and scheduling gaps (missing
+      tolerations / restrictive nodeSelector leaving pods absent or NotReady on some
+      nodes).
       Also flag improper pod resources: no limits set, usage near the memory limit
       (OOM risk), or limits far from actual usage; suggest a right-sized request/limit.

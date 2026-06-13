@@ -61,8 +61,9 @@ func BuildRunStatus(res engine.Result, startedAt, completedAt time.Time) (v1alph
 	steps := make([]v1alpha1.RunStep, 0, len(res.Steps))
 	for _, sr := range res.Steps {
 		rs := v1alpha1.RunStep{Name: sr.Name, Outcome: sr.Outcome, Reason: sr.Reason, Error: sr.Error, Note: sr.Note}
-		if len(sr.Outputs) > 0 {
-			raw, err := json.Marshal(sr.Outputs)
+		shown := filterStepOutputs(sr.SummaryFilter, sr.Outputs)
+		if len(shown) > 0 {
+			raw, err := json.Marshal(shown)
 			if err != nil {
 				return v1alpha1.RunStatus{}, fmt.Errorf("marshal outputs for step %s: %w", sr.Name, err)
 			}
@@ -70,8 +71,9 @@ func BuildRunStatus(res engine.Result, startedAt, completedAt time.Time) (v1alph
 		}
 		for _, it := range sr.Iterations {
 			ri := v1alpha1.RunStepIteration{Item: it.Item, Outcome: it.Outcome, Error: it.Error}
-			if len(it.Outputs) > 0 {
-				raw, err := json.Marshal(it.Outputs)
+			shownIt := filterStepOutputs(sr.SummaryFilter, it.Outputs)
+			if len(shownIt) > 0 {
+				raw, err := json.Marshal(shownIt)
 				if err != nil {
 					return v1alpha1.RunStatus{}, fmt.Errorf("marshal iteration outputs for step %s: %w", sr.Name, err)
 				}
@@ -92,6 +94,26 @@ func BuildRunStatus(res engine.Result, startedAt, completedAt time.Time) (v1alph
 		Warning:     res.Warning,
 		ModelConfig: res.ModelConfig,
 	}, nil
+}
+
+// filterStepOutputs limits a step's persisted outputs to its summaryFilter, the
+// same knob that controls what reaches the LLM: a nil filter records all outputs
+// (full audit), a non-nil filter records only the listed keys (an empty filter
+// records none). This keeps a step's `summaryFilter` one coherent "what this step
+// exposes" control for both the Run record and the model — so a `describe_*`
+// step's large `manifest` stays out of the Run unless explicitly listed. It does
+// not affect `when`/`$(steps.x.y)`, which read the full in-memory outputs.
+func filterStepOutputs(filter []string, outputs map[string]any) map[string]any {
+	if filter == nil {
+		return outputs
+	}
+	shown := make(map[string]any, len(filter))
+	for _, f := range filter {
+		if v, ok := outputs[f]; ok {
+			shown[f] = v
+		}
+	}
+	return shown
 }
 
 // GetRun retrieves a Run by name from kato's namespace. Returns (nil, false, nil) if not found.

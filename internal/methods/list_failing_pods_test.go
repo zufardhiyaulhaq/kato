@@ -27,6 +27,76 @@ func dsOwner(name string) metav1.OwnerReference {
 	return metav1.OwnerReference{Kind: "DaemonSet", Name: name}
 }
 
+// TestListFailingPodsIgnoresRecoveredPod reproduces the terway-eniip-ffnvx case:
+// a pod that crashed long ago (high restartCount, a non-zero lastTermination) but
+// is now Running and Ready (2/2). Its historical lastState must NOT mark it
+// failing — even with includeNotReady=true, since the pod is Ready.
+func TestListFailingPodsIgnoresRecoveredPod(t *testing.T) {
+	recovered := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "terway-eniip-ffnvx", Namespace: "kube-system",
+			OwnerReferences: []metav1.OwnerReference{dsOwner("terway-eniip")}},
+		Status: corev1.PodStatus{
+			Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "terway", Ready: true, RestartCount: 467,
+					State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+					LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+						Reason: "StartError", ExitCode: 128}}},
+				{Name: "policy", Ready: true,
+					State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+			},
+		},
+	}
+	client := fake.NewSimpleClientset(recovered)
+	m, _ := Builtin().Get("list_failing_pods")
+	out, err := m.Run(context.Background(), Deps{Kube: client}, map[string]string{
+		"namespace": "kube-system", "kind": "DaemonSet", "name": "terway-eniip",
+		"includeNotReady": "true",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out["count"] != int64(0) || out["anyFailing"] != false {
+		t.Errorf("recovered Running+Ready pod flagged as failing: count=%v anyFailing=%v",
+			out["count"], out["anyFailing"])
+	}
+}
+
+// TestListFailingPodsFlagsCurrentlyFailingFromLastState confirms the lastState
+// signal still fires when the container is NOT currently ready (e.g. OOMing now).
+func TestListFailingPodsFlagsCurrentlyFailingFromLastState(t *testing.T) {
+	ooming := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "oom-0", Namespace: "kube-system",
+			OwnerReferences: []metav1.OwnerReference{dsOwner("app")}},
+		Status: corev1.PodStatus{
+			Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}},
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name: "c", Ready: false, RestartCount: 4,
+				State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}},
+				LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+					Reason: "OOMKilled", ExitCode: 137}},
+			}},
+		},
+	}
+	client := fake.NewSimpleClientset(ooming)
+	m, _ := Builtin().Get("list_failing_pods")
+	// includeCrashLoop=false so the only thing that can flag it is the lastState branch.
+	out, err := m.Run(context.Background(), Deps{Kube: client}, map[string]string{
+		"namespace": "kube-system", "kind": "DaemonSet", "name": "app",
+		"includeCrashLoop": "false",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out["count"] != int64(1) {
+		t.Errorf("currently not-ready pod with OOM lastState should be failing: count=%v", out["count"])
+	}
+	pods, _ := out["pods"].([]map[string]any)
+	if len(pods) != 1 || pods[0]["reason"] != "OOMKilled" {
+		t.Errorf("expected OOMKilled reason, got %v", pods)
+	}
+}
+
 func TestListFailingPodsDaemonSet(t *testing.T) {
 	healthy := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "ok", Namespace: "kube-system", OwnerReferences: []metav1.OwnerReference{dsOwner("nld")}},

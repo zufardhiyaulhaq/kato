@@ -24,7 +24,8 @@ type RunStep struct {
 	Outcome string `json:"outcome"`
 	// Reason explains skipped/failed outcomes.
 	Reason string `json:"reason,omitempty"`
-	// Outputs holds all declared outputs of the step (unfiltered).
+	// Outputs holds the step's outputs, limited to its summaryFilter when one is
+	// set (all declared outputs if no filter is set).
 	// +kubebuilder:pruning:PreserveUnknownFields
 	Outputs *apiextensionsv1.JSON `json:"outputs,omitempty"`
 	Error   string                `json:"error,omitempty"`

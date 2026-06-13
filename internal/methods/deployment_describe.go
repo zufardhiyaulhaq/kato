@@ -29,6 +29,16 @@ func (describeDeployment) OutputFields() []OutputField {
 		{Name: "strategy", Type: FieldString, Description: "RollingUpdate|Recreate"},
 		{Name: "serviceAccount", Type: FieldString, Description: `pod template's service account, "" if default`},
 		{Name: "manifest", Type: FieldString, Description: "full YAML manifest; env values redacted, managedFields stripped"},
+		{Name: "replicas", Type: FieldInt, Description: "spec.replicas (1 if unset)"},
+		{Name: "selector", Type: FieldString, Description: "spec.selector matchLabels"},
+		{Name: "maxSurge", Type: FieldString, Description: `RollingUpdate maxSurge, "" for Recreate`},
+		{Name: "maxUnavailable", Type: FieldString, Description: `RollingUpdate maxUnavailable, "" for Recreate`},
+		{Name: "minReadySeconds", Type: FieldInt, Description: "spec.minReadySeconds"},
+		{Name: "revisionHistoryLimit", Type: FieldInt, Description: "spec.revisionHistoryLimit, -1 if unset"},
+		{Name: "paused", Type: FieldBool, Description: "spec.paused"},
+		{Name: "probes", Type: FieldString, Description: "per-container probe summary (pod template)"},
+		{Name: "nodeSelector", Type: FieldString, Description: "pod template nodeSelector"},
+		{Name: "tolerations", Type: FieldString, Description: "pod template tolerations"},
 	}
 }
 
@@ -50,14 +60,45 @@ func (describeDeployment) Run(ctx context.Context, deps Deps, params map[string]
 		return nil, fmt.Errorf("marshal deployment: %w", err)
 	}
 	tmpl := d.Spec.Template.Spec
+	replicas := int64(1)
+	if d.Spec.Replicas != nil {
+		replicas = int64(*d.Spec.Replicas)
+	}
+	revHist := int64(-1)
+	if d.Spec.RevisionHistoryLimit != nil {
+		revHist = int64(*d.Spec.RevisionHistoryLimit)
+	}
+	maxSurge, maxUnavailable := "", ""
+	if ru := d.Spec.Strategy.RollingUpdate; ru != nil {
+		if ru.MaxSurge != nil {
+			maxSurge = ru.MaxSurge.String()
+		}
+		if ru.MaxUnavailable != nil {
+			maxUnavailable = ru.MaxUnavailable.String()
+		}
+	}
+	selector := ""
+	if d.Spec.Selector != nil {
+		selector = renderKVMap(d.Spec.Selector.MatchLabels)
+	}
 	return Outputs{
-		"containers":       containerNames(tmpl.Containers),
-		"images":           containerImages(tmpl.Containers),
-		"resourceRequests": renderResourceList(tmpl.Containers, false),
-		"resourceLimits":   renderResourceList(tmpl.Containers, true),
-		"strategy":         string(d.Spec.Strategy.Type),
-		"serviceAccount":   tmpl.ServiceAccountName,
-		"manifest":         Truncate(string(y), defaultLogBytes),
+		"containers":           containerNames(tmpl.Containers),
+		"images":               containerImages(tmpl.Containers),
+		"resourceRequests":     renderResourceList(tmpl.Containers, false),
+		"resourceLimits":       renderResourceList(tmpl.Containers, true),
+		"strategy":             string(d.Spec.Strategy.Type),
+		"serviceAccount":       tmpl.ServiceAccountName,
+		"manifest":             Truncate(string(y), defaultLogBytes),
+		"replicas":             replicas,
+		"selector":             selector,
+		"maxSurge":             maxSurge,
+		"maxUnavailable":       maxUnavailable,
+		"minReadySeconds":      int64(d.Spec.MinReadySeconds),
+		"revisionHistoryLimit": revHist,
+		"paused":               d.Spec.Paused,
+		"probes":               renderProbes(tmpl.Containers),
+		"nodeSelector":         renderKVMap(tmpl.NodeSelector),
+		"tolerations":          renderTolerations(tmpl.Tolerations),
 	}, nil
 }
 

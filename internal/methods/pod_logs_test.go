@@ -59,3 +59,38 @@ func TestCheckPodLogsBadParams(t *testing.T) {
 		t.Fatal("expected error for non-bool previous")
 	}
 }
+
+func TestParseMaxLineLength(t *testing.T) {
+	// unset -> default
+	n, err := parseMaxLineLength(map[string]string{})
+	if err != nil || n != defaultMaxLineLength {
+		t.Fatalf("default = %d, %v; want %d", n, err, defaultMaxLineLength)
+	}
+	// explicit override
+	n, err = parseMaxLineLength(map[string]string{"maxLineLength": "200"})
+	if err != nil || n != 200 {
+		t.Fatalf("override = %d, %v; want 200", n, err)
+	}
+	// "0" -> unlimited (0)
+	n, err = parseMaxLineLength(map[string]string{"maxLineLength": "0"})
+	if err != nil || n != 0 {
+		t.Fatalf("zero = %d, %v; want 0", n, err)
+	}
+	// negative -> error
+	if _, err := parseMaxLineLength(map[string]string{"maxLineLength": "-5"}); err == nil {
+		t.Error("expected error for negative maxLineLength")
+	}
+	// non-integer -> error
+	if _, err := parseMaxLineLength(map[string]string{"maxLineLength": "abc"}); err == nil {
+		t.Error("expected error for non-integer maxLineLength")
+	}
+}
+
+func TestCheckPodLogsBadMaxLineLength(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	m, _ := Builtin().Get("check_pod_logs")
+	if _, err := m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "x", "name": "y", "maxLineLength": "abc"}); err == nil {
+		t.Fatal("expected error for non-integer maxLineLength")
+	}
+}

@@ -25,12 +25,13 @@ func (checkEvents) Params() []Param {
 		{Name: "namespace", Required: true, Description: "Namespace to read events from"},
 		{Name: "involvedObject", Description: "filter to events about this object name; empty = whole namespace"},
 		{Name: "limit", Description: `max event lines to render, warnings first (default "20"; "0" = no limit)`},
+		{Name: "maxLineLength", Description: `max characters per rendered line; longer lines are trimmed with a "…[+N chars]" marker (default "1000"; "0" = unlimited)`},
 	}
 }
 
 func (checkEvents) OutputFields() []OutputField {
 	return []OutputField{
-		{Name: "events", Type: FieldString, Description: "rendered event lines, warnings first (capped by limit)"},
+		{Name: "events", Type: FieldString, Description: "rendered event lines, warnings first (capped by limit); each line trimmed to maxLineLength"},
 		{Name: "count", Type: FieldInt, Description: "number of events matched"},
 		{Name: "warningCount", Type: FieldInt, Description: "number of Warning events matched"},
 	}
@@ -44,6 +45,10 @@ func (checkEvents) Run(ctx context.Context, deps Deps, params map[string]string)
 			return nil, fmt.Errorf("param limit: %w", err)
 		}
 		limit = n
+	}
+	maxLine, err := parseMaxLineLength(params)
+	if err != nil {
+		return nil, err
 	}
 
 	list, err := deps.Kube.CoreV1().Events(params["namespace"]).List(ctx, metav1.ListOptions{})
@@ -84,7 +89,7 @@ func (checkEvents) Run(ctx context.Context, deps Deps, params map[string]string)
 		fmt.Fprintf(&b, "[... %d more events not shown ...]\n", hidden)
 	}
 	return Outputs{
-		"events":       Truncate(b.String(), defaultLogBytes),
+		"events":       Truncate(ClampLineLength(b.String(), maxLine), defaultLogBytes),
 		"count":        int64(len(matched)),
 		"warningCount": warnings,
 	}, nil

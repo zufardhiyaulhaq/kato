@@ -26,7 +26,7 @@ func (listFailingPods) Params() []Param {
 		{Name: "minRestarts", Description: "only include pods with restartCount >= this (default 0)"},
 		{Name: "includeCrashLoop", Description: `count CrashLoopBackOff pods (default "true")`},
 		{Name: "includeImagePull", Description: `count ImagePullBackOff/ErrImagePull/CreateContainerError pods (default "true")`},
-		{Name: "includeOOM", Description: `count OOMKilled / non-zero last-exit pods (default "true")`},
+		{Name: "includeOOM", Description: `count not-ready pods whose last termination was OOMKilled / non-zero exit (default "true"); a recovered Running+Ready pod is not counted on history alone`},
 		{Name: "includeNotReady", Description: `count any not-Ready pod (default "false")`},
 	}
 }
@@ -156,7 +156,12 @@ func classifyPod(p *corev1.Pod, c failCriteria) (reason string, restarts int32, 
 				return w.Reason, maxRestart(p), true
 			}
 		}
-		if t := cs.LastTerminationState.Terminated; t != nil && c.oom {
+		// LastTerminationState is historical: it records the last time a container
+		// died and persists for the pod's whole life. Only treat it as a CURRENT
+		// failure when the container is not presently ready — otherwise a pod that
+		// crashed once long ago but has since recovered (Running + Ready) would be
+		// reported as failing forever.
+		if t := cs.LastTerminationState.Terminated; t != nil && c.oom && !cs.Ready {
 			if t.Reason == "OOMKilled" || t.ExitCode != 0 {
 				r := t.Reason
 				if r == "" {

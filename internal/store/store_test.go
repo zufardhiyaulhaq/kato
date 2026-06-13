@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +31,49 @@ func newFakeClient(t *testing.T, objs ...client.Object) client.Client {
 	return fake.NewClientBuilder().WithScheme(runtimeScheme(t)).
 		WithStatusSubresource(&v1alpha1.Run{}).
 		WithObjects(objs...).Build()
+}
+
+func TestBuildRunStatusAppliesSummaryFilter(t *testing.T) {
+	res := engine.Result{
+		Phase: "Succeeded",
+		Steps: []engine.StepResult{
+			// non-nil filter -> only listed keys persisted (big manifest dropped)
+			{Name: "describe", Outcome: "completed",
+				SummaryFilter: []string{"tolerations"},
+				Outputs:       map[string]any{"tolerations": "node-role:NoSchedule", "manifest": "HUGE-YAML-BLOB"}},
+			// empty filter -> outputs omitted entirely
+			{Name: "secret", Outcome: "completed",
+				SummaryFilter: []string{},
+				Outputs:       map[string]any{"data": "SENSITIVE"}},
+			// nil filter -> all outputs (audit unchanged)
+			{Name: "status", Outcome: "completed",
+				Outputs: map[string]any{"phase": "Running", "restartCount": int64(3)}},
+			// filter also applies to forEach iteration outputs
+			{Name: "iter", Outcome: "completed",
+				SummaryFilter: []string{"restartCount"},
+				Iterations: []engine.IterationResult{
+					{Item: map[string]string{"name": "p"}, Outcome: "completed",
+						Outputs: map[string]any{"restartCount": int64(9), "phase": "Running"}},
+				}},
+		},
+	}
+	st, err := BuildRunStatus(res, time.Now(), time.Now())
+	if err != nil {
+		t.Fatalf("BuildRunStatus: %v", err)
+	}
+	if d := string(st.Steps[0].Outputs.Raw); !strings.Contains(d, "tolerations") ||
+		strings.Contains(d, "manifest") || strings.Contains(d, "HUGE") {
+		t.Errorf("describe outputs not filtered: %s", d)
+	}
+	if st.Steps[1].Outputs != nil {
+		t.Errorf("empty summaryFilter should drop outputs, got %s", st.Steps[1].Outputs.Raw)
+	}
+	if s := string(st.Steps[2].Outputs.Raw); !strings.Contains(s, "phase") || !strings.Contains(s, "restartCount") {
+		t.Errorf("nil filter should keep all outputs: %s", s)
+	}
+	if it := string(st.Steps[3].Iterations[0].Outputs.Raw); !strings.Contains(it, "restartCount") || strings.Contains(it, "phase") {
+		t.Errorf("iteration outputs not filtered by parent summaryFilter: %s", it)
+	}
 }
 
 func TestSaveRunWritesSpecAndStatus(t *testing.T) {

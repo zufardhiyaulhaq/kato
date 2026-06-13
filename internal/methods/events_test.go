@@ -95,3 +95,37 @@ func TestCheckEventsLimit(t *testing.T) {
 		t.Errorf("limit=0 should render all events: %q", ev)
 	}
 }
+
+func TestCheckEventsClampsLongMessage(t *testing.T) {
+	huge := strings.Repeat("z", 5000)
+	ev := &corev1.Event{
+		ObjectMeta:     metav1.ObjectMeta{Name: "big", Namespace: "ns"},
+		InvolvedObject: corev1.ObjectReference{Name: "obj", Kind: "Pod"},
+		Type:           corev1.EventTypeWarning, Reason: "Boom", Message: huge, Count: 1,
+	}
+	client := fake.NewSimpleClientset(ev)
+	m, _ := Builtin().Get("check_events")
+
+	// Default cap (1000): the rendered line is trimmed with a marker.
+	out, err := m.Run(context.Background(), Deps{Kube: client}, map[string]string{"namespace": "ns"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	events := out["events"].(string)
+	if !strings.Contains(events, "…[+") {
+		t.Errorf("long event message not clamped: %q", events[:min(120, len(events))])
+	}
+	if strings.Count(events, "z") >= 5000 {
+		t.Errorf("full 5000-char message survived the cap")
+	}
+
+	// Disabled (maxLineLength "0"): full message survives.
+	out, err = m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "ns", "maxLineLength": "0"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if strings.Count(out["events"].(string), "z") < 5000 {
+		t.Errorf("maxLineLength 0 should leave the message whole")
+	}
+}

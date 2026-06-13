@@ -30,6 +30,15 @@ spec:
         namespace: kube-system
         name: coredns
 
+    # For CoreDNS pods Running-but-not-Ready, the readiness probe (the `ready`
+    # plugin on :8181) is the usual culprit.
+    - name: coredns-deployment-describe
+      method: describe_deployment
+      with:
+        namespace: kube-system
+        name: coredns
+      summaryFilter: [probes]
+
     - name: coredns-hpa
       method: check_hpa
       with:
@@ -51,6 +60,7 @@ spec:
         namespace: kube-system
         involvedObject: coredns
         limit: "5"
+        maxLineLength: "200"
       summaryFilter: [events, warningCount]
 
     # --- node-local-dns DaemonSet and its config ---
@@ -59,6 +69,15 @@ spec:
       with:
         namespace: kube-system
         name: node-local-dns
+
+    # Per-node cache must run on every node: check tolerations/nodeSelector for
+    # gaps that leave some nodes without a local DNS cache.
+    - name: nodelocaldns-describe
+      method: describe_daemonset
+      with:
+        namespace: kube-system
+        name: node-local-dns
+      summaryFilter: [updateStrategy, maxUnavailable, nodeSelector, tolerations]
 
     - name: nodelocaldns-config
       method: check_configmap
@@ -74,6 +93,7 @@ spec:
         namespace: kube-system
         involvedObject: node-local-dns
         limit: "5"
+        maxLineLength: "200"
       summaryFilter: [events, warningCount]
 
     # --- The kube-dns Service the rest of the cluster resolves against ---
@@ -82,6 +102,16 @@ spec:
       with:
         namespace: kube-system
         name: kube-dns
+
+    # The whole cluster resolves against this Service: its clusterIP must match the
+    # kubelet --cluster-dns IP, it must expose 53 on UDP+TCP, and its selector must
+    # match the CoreDNS pods.
+    - name: kube-dns-service-describe
+      method: describe_service
+      with:
+        namespace: kube-system
+        name: kube-dns
+      summaryFilter: [clusterIP, ports, selector]
 
     # --- CoreDNS failing-pod drill-down ---
     - name: coredns-failing
@@ -94,7 +124,7 @@ spec:
 
     - name: coredns-pod-status
       forEach: $(steps.coredns-failing.pods)
-      maxItems: 2
+      maxItems: 1
       when: $(steps.coredns-failing.anyFailing)
       method: check_pod_status
       with:
@@ -103,18 +133,19 @@ spec:
 
     - name: coredns-pod-events
       forEach: $(steps.coredns-failing.pods)
-      maxItems: 2
+      maxItems: 1
       when: $(steps.coredns-failing.anyFailing)
       method: check_events
       with:
         namespace: $(item.namespace)
         involvedObject: $(item.name)
         limit: "5"
+        maxLineLength: "200"
       summaryFilter: [events, warningCount]
 
     - name: coredns-pod-logs
       forEach: $(steps.coredns-failing.pods)
-      maxItems: 2
+      maxItems: 1
       when: $(steps.coredns-failing.anyFailing)
       method: check_pod_logs
       with:
@@ -122,11 +153,12 @@ spec:
         name: $(item.name)
         container: coredns
         tailLines: "10"
+        maxLineLength: "200"
       summaryFilter: [logs]
 
     - name: coredns-pod-previous-logs
       forEach: $(steps.coredns-failing.pods)
-      maxItems: 2
+      maxItems: 1
       when: $(steps.coredns-failing.anyFailing)
       method: check_pod_logs
       with:
@@ -135,6 +167,7 @@ spec:
         container: coredns
         previous: "true"
         tailLines: "10"
+        maxLineLength: "200"
       summaryFilter: [logs]
 
     # --- node-local-dns failing-pod drill-down ---
@@ -148,7 +181,7 @@ spec:
 
     - name: nodelocaldns-pod-status
       forEach: $(steps.nodelocaldns-failing.pods)
-      maxItems: 2
+      maxItems: 1
       when: $(steps.nodelocaldns-failing.anyFailing)
       method: check_pod_status
       with:
@@ -157,7 +190,7 @@ spec:
 
     - name: nodelocaldns-pod-logs
       forEach: $(steps.nodelocaldns-failing.pods)
-      maxItems: 2
+      maxItems: 1
       when: $(steps.nodelocaldns-failing.anyFailing)
       method: check_pod_logs
       with:
@@ -165,6 +198,7 @@ spec:
         name: $(item.name)
         container: node-cache
         tailLines: "10"
+        maxLineLength: "200"
       summaryFilter: [logs]
 
     # --- Resourcing (running pods): requests/limits vs live usage ---
@@ -217,16 +251,13 @@ spec:
       summaryFilter: [containers, metricsAvailable]
   summary:
     prompt: |
-      From the evidence, give the most likely root cause and a concrete fix for
-      cluster DNS (kube-system). If nothing is failing, say it looks healthy and
-      summarize the counts. Cover both layers: CoreDNS (central) and node-local-dns
-      (per-node cache).
-
-      Look for: CoreDNS pods CrashLoopBackOff or OOMKilled; a CoreDNS HPA pinned at
-      maxReplicas (atMax/scalingLimited true → DNS is capacity-constrained, raise
-      maxReplicas or requests); node-local-dns not ready on some nodes (desired vs
-      ready); the kube-dns Service having no ready endpoints (cluster-wide DNS
-      outage); a missing or malformed Corefile (plugin/forward errors in logs).
+      Root-cause and fix cluster DNS (kube-system), covering CoreDNS and
+      node-local-dns; if healthy, say so and summarize the counts. Watch for: CoreDNS
+      CrashLoopBackOff/OOMKilled or a failing readiness probe; an HPA pinned at
+      maxReplicas (atMax/scalingLimited); node-local-dns missing on some nodes
+      (tolerations/nodeSelector gaps); the kube-dns Service with no endpoints, wrong
+      clusterIP (must equal kubelet --cluster-dns), missing 53 UDP/TCP, or a
+      mismatched selector; a missing/malformed Corefile.
       Also flag improper pod resources: no limits set, usage near the memory limit
       (OOM risk), or limits far from actual usage; suggest a right-sized
       request/limit.

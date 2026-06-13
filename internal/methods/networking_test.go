@@ -9,6 +9,7 @@ import (
 	discoveryv1 "k8s.io/api/discovery/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/utils/ptr"
 )
@@ -102,5 +103,40 @@ func TestCheckIngress(t *testing.T) {
 	}
 	if !strings.Contains(out["rules"].(string), "api.example.com") {
 		t.Errorf("rules = %q", out["rules"])
+	}
+}
+
+func TestDescribeServiceStructuredFields(t *testing.T) {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: corev1.ServiceSpec{
+			Type:      corev1.ServiceTypeClusterIP,
+			ClusterIP: "10.0.0.5",
+			Selector:  map[string]string{"app": "api"},
+			Ports: []corev1.ServicePort{
+				{Name: "http", Port: 80, TargetPort: intstr.FromInt(8080), Protocol: corev1.ProtocolTCP},
+			},
+		},
+	}
+	client := fake.NewSimpleClientset(svc)
+	m, _ := Builtin().Get("describe_service")
+	out, err := m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "default", "name": "api"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	checks := map[string]any{
+		"type":      "ClusterIP",
+		"clusterIP": "10.0.0.5",
+		"selector":  "app=api",
+		"ports":     "http:80→8080/TCP",
+	}
+	for f, want := range checks {
+		if out[f] != want {
+			t.Errorf("%s = %v, want %v", f, out[f], want)
+		}
+	}
+	if _, ok := out["manifest"]; !ok {
+		t.Error("manifest output dropped")
 	}
 }

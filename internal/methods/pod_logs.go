@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	defaultLogBytes  = 64 * 1024
-	defaultTailLines = 10
+	defaultLogBytes      = 64 * 1024
+	defaultTailLines     = 10
+	defaultMaxLineLength = 1000
 )
 
 type checkPodLogs struct{}
@@ -25,12 +26,13 @@ func (checkPodLogs) Params() []Param {
 		{Name: "container", Description: "container name; empty = first container"},
 		{Name: "previous", Description: `"true" to fetch the previous instance's logs`},
 		{Name: "tailLines", Description: "max lines from the end (integer); defaults to 10"},
+		{Name: "maxLineLength", Description: `max characters per line; longer lines are trimmed with a "…[+N chars]" marker (default "1000"; "0" = unlimited)`},
 	}
 }
 
 func (checkPodLogs) OutputFields() []OutputField {
 	return []OutputField{
-		{Name: "logs", Type: FieldString, Description: "log text, truncated head+tail if large"},
+		{Name: "logs", Type: FieldString, Description: "log text; per line trimmed to maxLineLength, whole blob truncated head+tail if large"},
 	}
 }
 
@@ -58,8 +60,30 @@ func buildPodLogOptions(params map[string]string) (*corev1.PodLogOptions, error)
 	return opts, nil
 }
 
+// parseMaxLineLength reads the maxLineLength param: unset -> defaultMaxLineLength,
+// "0" -> 0 (unlimited), a valid non-negative int -> that value; negative or
+// non-integer -> error.
+func parseMaxLineLength(params map[string]string) (int, error) {
+	v := params["maxLineLength"]
+	if v == "" {
+		return defaultMaxLineLength, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("param maxLineLength: %w", err)
+	}
+	if n < 0 {
+		return 0, fmt.Errorf("param maxLineLength: must be >= 0, got %d", n)
+	}
+	return n, nil
+}
+
 func (checkPodLogs) Run(ctx context.Context, deps Deps, params map[string]string) (Outputs, error) {
 	opts, err := buildPodLogOptions(params)
+	if err != nil {
+		return nil, err
+	}
+	maxLine, err := parseMaxLineLength(params)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +92,7 @@ func (checkPodLogs) Run(ctx context.Context, deps Deps, params map[string]string
 	if err != nil {
 		return nil, fmt.Errorf("get logs %s/%s: %w", params["namespace"], params["name"], err)
 	}
-	return Outputs{"logs": Truncate(string(raw), defaultLogBytes)}, nil
+	return Outputs{"logs": Truncate(ClampLineLength(string(raw), maxLine), defaultLogBytes)}, nil
 }
 
 func init() { builtinFns = append(builtinFns, func(r *Registry) { r.Register(checkPodLogs{}) }) }

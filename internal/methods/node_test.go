@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 )
@@ -61,5 +62,45 @@ func TestDescribeNode(t *testing.T) {
 	}
 	if _, ok := out["manifest"].(string); !ok {
 		t.Error("manifest output missing")
+	}
+}
+
+func TestDescribeNodeInfoFields(t *testing.T) {
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-1"},
+		Spec:       corev1.NodeSpec{Unschedulable: true},
+		Status: corev1.NodeStatus{
+			NodeInfo: corev1.NodeSystemInfo{
+				KubeletVersion:          "v1.30.2",
+				OSImage:                 "Ubuntu 22.04",
+				KernelVersion:           "5.15.0",
+				ContainerRuntimeVersion: "containerd://1.7.2",
+			},
+			Capacity: corev1.ResourceList{corev1.ResourcePods: resource.MustParse("110")},
+			Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+				{Type: corev1.NodeMemoryPressure, Status: corev1.ConditionFalse},
+			},
+		},
+	}
+	client := fake.NewSimpleClientset(node)
+	m, _ := Builtin().Get("describe_node")
+	out, err := m.Run(context.Background(), Deps{Kube: client}, map[string]string{"name": "node-1"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	checks := map[string]any{
+		"kubeletVersion":   "v1.30.2",
+		"osImage":          "Ubuntu 22.04",
+		"kernelVersion":    "5.15.0",
+		"containerRuntime": "containerd://1.7.2",
+		"capacityPods":     "110",
+		"unschedulable":    true,
+		"conditions":       "Ready=True, MemoryPressure=False",
+	}
+	for f, want := range checks {
+		if out[f] != want {
+			t.Errorf("%s = %v, want %v", f, out[f], want)
+		}
 	}
 }

@@ -6,10 +6,13 @@ metadata:
     {{- include "kato.labels" . | nindent 4 }}
 rules:
   - apiGroups: [""]
-    resources: [pods, pods/log, nodes, services, events, endpoints, configmaps]
+    resources: [pods, pods/log, nodes, services, events, endpoints, configmaps, persistentvolumeclaims]
     verbs: [get, list, watch]
   - apiGroups: ["apps"]
     resources: [deployments, replicasets, daemonsets, statefulsets]
+    verbs: [get, list, watch]
+  - apiGroups: ["batch"]
+    resources: [jobs, cronjobs]
     verbs: [get, list, watch]
   - apiGroups: ["autoscaling"]
     resources: [horizontalpodautoscalers]

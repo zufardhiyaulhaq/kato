@@ -1,6 +1,7 @@
 package summarizer
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -8,6 +9,57 @@ import (
 	"github.com/zufardhiyaulhaq/kato/internal/engine"
 	"github.com/zufardhiyaulhaq/kato/internal/methods"
 )
+
+type fakeCompleter struct{}
+
+func (fakeCompleter) Complete(ctx context.Context, system, user string) (string, error) {
+	return "diagnosis", nil
+}
+
+func TestSummarizeDebugLogDumpsFullRequest(t *testing.T) {
+	uc := &v1alpha1.UseCase{Spec: v1alpha1.UseCaseSpec{
+		Steps:   []v1alpha1.Step{{Name: "node", Method: "check_node_status"}},
+		Summary: v1alpha1.SummarySpec{Prompt: "diagnose the cluster"},
+	}}
+	steps := []engine.StepResult{{Name: "node", Outcome: "completed",
+		Outputs: methods.Outputs{"ready": true}}}
+
+	var messages string
+	called := false
+	s := &Summarizer{
+		Resolve: func(*v1alpha1.UseCase) (Completer, string, error) { return fakeCompleter{}, "gpt-test", nil },
+		DebugLog: func(msg string, kv ...any) {
+			called = true
+			for i := 0; i+1 < len(kv); i += 2 {
+				if kv[i] == "messages" {
+					messages, _ = kv[i+1].(string)
+				}
+			}
+		},
+	}
+	if _, _, err := s.Summarize(context.Background(), uc, steps); err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	if !called {
+		t.Fatal("DebugLog was not invoked")
+	}
+	for _, want := range []string{`"role": "system"`, `"role": "user"`, systemPrompt, "diagnose the cluster", "ready"} {
+		if !strings.Contains(messages, want) {
+			t.Errorf("debug dump missing %q; got: %s", want, messages)
+		}
+	}
+}
+
+func TestSummarizeWithoutDebugLogIsNoop(t *testing.T) {
+	uc := &v1alpha1.UseCase{Spec: v1alpha1.UseCaseSpec{
+		Steps:   []v1alpha1.Step{{Name: "node", Method: "check_node_status"}},
+		Summary: v1alpha1.SummarySpec{Prompt: "x"},
+	}}
+	s := &Summarizer{Resolve: func(*v1alpha1.UseCase) (Completer, string, error) { return fakeCompleter{}, "m", nil }}
+	if _, _, err := s.Summarize(context.Background(), uc, nil); err != nil {
+		t.Fatalf("Summarize without DebugLog should not error: %v", err)
+	}
+}
 
 func TestBuildEvidenceAppliesSummaryFilter(t *testing.T) {
 	uc := &v1alpha1.UseCase{

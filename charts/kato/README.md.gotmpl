@@ -93,13 +93,15 @@ plain-language root cause and fix. Same steps, every time.
 
 ## Built-in methods
 
-kato ships **19 read-only checks** you compose into flows — pods, workloads, nodes,
-networking, and config:
+kato ships **25 read-only checks** you compose into flows — pods, workloads,
+storage, batch, nodes, networking, and config:
 
 | Area | Methods |
 |---|---|
 | Pods | `check_pod_status`, `check_pod_logs`, `describe_pod`, `check_pod_resources`, `check_pod_usage` |
-| Workloads | `check_deployment_status`, `describe_deployment`, `check_replicaset`, `check_daemonset_status`, `check_hpa` |
+| Workloads | `check_deployment_status`, `describe_deployment`, `check_replicaset`, `check_daemonset_status`, `describe_daemonset`, `check_statefulset_status`, `describe_statefulset`, `check_hpa` |
+| Storage | `check_pvc` |
+| Batch | `check_job`, `check_cronjob` |
 | Listing / fan-out | `list_pods`, `list_failing_pods` (drive `forEach` across a workload's pods) |
 | Nodes | `check_node_status`, `describe_node` |
 | Networking | `check_service_endpoints`, `describe_service`, `check_ingress` |

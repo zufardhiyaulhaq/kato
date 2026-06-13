@@ -38,6 +38,11 @@ type StepResult struct {
 	Error      string
 	Iterations []IterationResult // populated for forEach steps
 	Note       string            // forEach truncation note
+	// SummaryFilter is the step's spec.summaryFilter, carried so persistence can
+	// limit the recorded Run outputs to the same fields exposed to the LLM. nil =
+	// no filter (record all outputs); non-nil (incl. empty) = record only the
+	// listed keys. Does not affect when/$(steps.x.y), which read full Outputs.
+	SummaryFilter []string
 }
 
 type Result struct {
@@ -98,7 +103,7 @@ func (e *Engine) runStep(ctx context.Context, uc *v1alpha1.UseCase, step v1alpha
 		return e.runForEachStep(ctx, uc, step, inputs, state)
 	}
 
-	sr := StepResult{Name: step.Name}
+	sr := StepResult{Name: step.Name, SummaryFilter: step.SummaryFilter}
 
 	m, ok := e.Registry.Get(step.Method)
 	if !ok { // unreachable for Ready UseCases; defensive for direct callers
@@ -187,7 +192,7 @@ func (e *Engine) runStep(ctx context.Context, uc *v1alpha1.UseCase, step v1alpha
 func (e *Engine) runForEachStep(ctx context.Context, uc *v1alpha1.UseCase, step v1alpha1.Step,
 	inputs map[string]string, state map[string]*StepResult) StepResult {
 
-	sr := StepResult{Name: step.Name}
+	sr := StepResult{Name: step.Name, SummaryFilter: step.SummaryFilter}
 
 	m, ok := e.Registry.Get(step.Method)
 	if !ok {
