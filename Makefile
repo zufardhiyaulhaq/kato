@@ -5,7 +5,7 @@ ENVTEST_K8S_VERSION = 1.32.0
 GOLANGCI_LINT = $(GOBIN)/golangci-lint
 
 .PHONY: help build test test-integration lint generate manifests \
-        install-crds uninstall-crds run
+        install-crds uninstall-crds run readme helm.create.releases
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -46,3 +46,11 @@ uninstall-crds: ## Delete kato CRDs from the cluster
 
 run: ## Run kato locally against your kubeconfig (loads .env if present)
 	@set -a; [ -f .env ] && . ./.env; set +a; go run ./cmd/kato
+
+readme: ## Regenerate README.md from the Helm chart with helm-docs
+	helm-docs -c ./charts/kato -d > README.md
+	helm-docs -c ./charts/kato
+
+helm.create.releases: ## Package the Helm chart and refresh the chart repo index
+	helm package charts/kato --destination charts/releases
+	helm repo index charts/releases
