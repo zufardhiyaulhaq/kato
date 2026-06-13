@@ -57,7 +57,6 @@
 `internal/methods/listoutput_test.go`:
 
 {% raw %}
-{% raw %}
 ```go
 package methods
 
@@ -105,7 +104,6 @@ func TestListOutputsOf(t *testing.T) {
 	}
 }
 ```
-{% endraw %}
 {% endraw %}
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -177,7 +175,6 @@ git commit -m "feat: list-output contract for methods (ListProducer)"
 
 `internal/methods/list_failing_pods_test.go`:
 
-{% raw %}
 {% raw %}
 ```go
 package methods
@@ -334,7 +331,6 @@ func TestListFailingPodsDeclaresListOutput(t *testing.T) {
 	}
 }
 ```
-{% endraw %}
 {% endraw %}
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -728,7 +724,6 @@ git commit -m "feat: parse \$(item.<field>) references"
 `api/v1alpha1/foreach_types_test.go`:
 
 {% raw %}
-{% raw %}
 ```go
 package v1alpha1
 
@@ -760,7 +755,6 @@ func TestForEachFieldsAndDeepCopy(t *testing.T) {
 	}
 }
 ```
-{% endraw %}
 {% endraw %}
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1105,7 +1099,6 @@ git commit -m "feat: watch-time validation for forEach, list refs, and item refs
 `internal/engine/engine_foreach_test.go`:
 
 {% raw %}
-{% raw %}
 ```go
 package engine
 
@@ -1205,7 +1198,6 @@ func TestExecuteForEachZeroItemsSkips(t *testing.T) {
 	}
 }
 ```
-{% endraw %}
 {% endraw %}
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1446,7 +1438,6 @@ In `SaveRun`, replace the step-building loop with:
 Append to `internal/store/store_test.go`:
 
 {% raw %}
-{% raw %}
 ```go
 func TestSaveRunPersistsIterations(t *testing.T) {
 	c := newFakeClient(t)
@@ -1484,7 +1475,6 @@ func TestSaveRunPersistsIterations(t *testing.T) {
 }
 ```
 {% endraw %}
-{% endraw %}
 
 - [ ] **Step 8: Run store test to verify it passes**
 
@@ -1510,7 +1500,6 @@ git commit -m "feat: forEach iteration execution and Run iteration persistence"
 
 `internal/summarizer/summarizer_foreach_test.go`:
 
-{% raw %}
 {% raw %}
 ```go
 package summarizer
@@ -1559,7 +1548,6 @@ func TestBuildEvidenceRendersIterations(t *testing.T) {
 	}
 }
 ```
-{% endraw %}
 {% endraw %}
 
 - [ ] **Step 2: Run test to verify it fails**

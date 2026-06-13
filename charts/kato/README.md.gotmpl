@@ -36,11 +36,11 @@ Calling the use case executes that flow **deterministically**; an LLM is used on
 
 Three CRDs:
 
-- **`UseCase`** — the flow: inputs, ordered steps, `when` conditions, `forEach`
+- **`UseCase`** is the flow: inputs, ordered steps, `when` conditions, `forEach`
   fan-out, per-step `summaryFilter`, and the summary prompt.
-- **`ModelConfig`** — an LLM backend (OpenAI-compatible). UseCases pick one via
+- **`ModelConfig`** is the LLM backend (OpenAI-compatible). UseCases pick one via
   `summary.modelConfigRef` or fall back to the default.
-- **`Run`** — the audit record of each execution: inputs, per-step outputs, and the
+- **`Run`** is the audit record of each execution: inputs, per-step outputs, and the
   summary. Create one with `kubectl`/GitOps, or via the REST API.
 
 ### A real use case
@@ -53,15 +53,21 @@ metadata:
 spec:
   description: "Diagnose why a pod is crash looping"
   inputs:
-    - { name: namespace, required: true }
-    - { name: pod, required: true }
+    - name: namespace
+      required: true
+    - name: pod
+      required: true
   steps:
     - name: status
       method: check_pod_status
-      with: { namespace: $(inputs.namespace), name: $(inputs.pod) }
+      with:
+        namespace: $(inputs.namespace)
+        name: $(inputs.pod)
     - name: events
       method: check_events
-      with: { namespace: $(inputs.namespace), involvedObject: $(inputs.pod) }
+      with:
+        namespace: $(inputs.namespace)
+        involvedObject: $(inputs.pod)
     - name: previous-logs
       method: check_pod_logs
       when: $(steps.status.restartCount) > 0      # only if it actually restarted
@@ -73,7 +79,8 @@ spec:
     - name: node
       method: describe_node
       when: $(steps.status.nodeName) != ""
-      with: { name: $(steps.status.nodeName) }
+      with:
+        name: $(steps.status.nodeName)
   summary:
     prompt: |
       You are a Kubernetes SRE. Based on the evidence, explain why this pod is
