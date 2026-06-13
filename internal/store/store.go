@@ -35,7 +35,7 @@ func (s *Store) SaveRun(ctx context.Context, useCase string, inputs map[string]s
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: useCase + "-",
 			Namespace:    s.Namespace,
-			Labels:       map[string]string{usecaseLabel: useCase},
+			Labels:       map[string]string{usecaseLabel: useCase, v1alpha1.ManagedByLabel: v1alpha1.ManagedByAPI},
 		},
 		Spec: v1alpha1.RunSpec{UseCase: useCase, Inputs: inputs},
 	}
@@ -43,13 +43,28 @@ func (s *Store) SaveRun(ctx context.Context, useCase string, inputs map[string]s
 		return nil, fmt.Errorf("create run: %w", err)
 	}
 
+	status, err := BuildRunStatus(res, startedAt, completedAt)
+	if err != nil {
+		return nil, err
+	}
+	run.Status = status
+	if err := s.Client.Status().Update(ctx, run); err != nil {
+		return nil, fmt.Errorf("update run status: %w", err)
+	}
+	return run, nil
+}
+
+// BuildRunStatus maps an engine.Result to a RunStatus (steps, iterations,
+// summary, timing). Pure: the REST path (SaveRun) and the RunReconciler share it
+// so externally-triggered runs record identical status to API ones.
+func BuildRunStatus(res engine.Result, startedAt, completedAt time.Time) (v1alpha1.RunStatus, error) {
 	steps := make([]v1alpha1.RunStep, 0, len(res.Steps))
 	for _, sr := range res.Steps {
 		rs := v1alpha1.RunStep{Name: sr.Name, Outcome: sr.Outcome, Reason: sr.Reason, Error: sr.Error, Note: sr.Note}
 		if len(sr.Outputs) > 0 {
 			raw, err := json.Marshal(sr.Outputs)
 			if err != nil {
-				return nil, fmt.Errorf("marshal outputs for step %s: %w", sr.Name, err)
+				return v1alpha1.RunStatus{}, fmt.Errorf("marshal outputs for step %s: %w", sr.Name, err)
 			}
 			rs.Outputs = &apiextensionsv1.JSON{Raw: raw}
 		}
@@ -58,7 +73,7 @@ func (s *Store) SaveRun(ctx context.Context, useCase string, inputs map[string]s
 			if len(it.Outputs) > 0 {
 				raw, err := json.Marshal(it.Outputs)
 				if err != nil {
-					return nil, fmt.Errorf("marshal iteration outputs for step %s: %w", sr.Name, err)
+					return v1alpha1.RunStatus{}, fmt.Errorf("marshal iteration outputs for step %s: %w", sr.Name, err)
 				}
 				ri.Outputs = &apiextensionsv1.JSON{Raw: raw}
 			}
@@ -68,7 +83,7 @@ func (s *Store) SaveRun(ctx context.Context, useCase string, inputs map[string]s
 	}
 	started := metav1.NewTime(startedAt)
 	completed := metav1.NewTime(completedAt)
-	run.Status = v1alpha1.RunStatus{
+	return v1alpha1.RunStatus{
 		Phase:       res.Phase,
 		StartedAt:   &started,
 		CompletedAt: &completed,
@@ -76,11 +91,7 @@ func (s *Store) SaveRun(ctx context.Context, useCase string, inputs map[string]s
 		Summary:     res.Summary,
 		Warning:     res.Warning,
 		ModelConfig: res.ModelConfig,
-	}
-	if err := s.Client.Status().Update(ctx, run); err != nil {
-		return nil, fmt.Errorf("update run status: %w", err)
-	}
-	return run, nil
+	}, nil
 }
 
 // GetRun retrieves a Run by name from kato's namespace. Returns (nil, false, nil) if not found.
@@ -135,4 +146,37 @@ func (s *Store) GarbageCollect(ctx context.Context, now time.Time) (int, error) 
 		}
 	}
 	return deleted, nil
+}
+
+// ReapStuckRuns force-fails Runs stuck in Running longer than maxDuration — the
+// signature of a controller that crashed after claiming a Run but before writing
+// its terminal phase. It scans cluster-wide (external Runs may live in any
+// namespace) and flips status only; it never deletes. Returns the count reaped.
+func (s *Store) ReapStuckRuns(ctx context.Context, now time.Time, maxDuration time.Duration) (int, error) {
+	var list v1alpha1.RunList
+	if err := s.Client.List(ctx, &list); err != nil {
+		return 0, fmt.Errorf("list runs: %w", err)
+	}
+	reaped := 0
+	for i := range list.Items {
+		run := &list.Items[i]
+		if run.Status.Phase != engine.PhaseRunning || run.Status.StartedAt == nil {
+			continue
+		}
+		if now.Sub(run.Status.StartedAt.Time) <= maxDuration {
+			continue
+		}
+		completed := metav1.NewTime(now)
+		run.Status.Phase = engine.PhaseFailed
+		run.Status.CompletedAt = &completed
+		run.Status.Note = fmt.Sprintf("run exceeded max duration (%s) and was reaped; cause is a controller restart mid-run or a run longer than KATO_RUN_MAX_DURATION", maxDuration)
+		if err := s.Client.Status().Update(ctx, run); err != nil {
+			if errors.IsConflict(err) {
+				continue
+			}
+			return reaped, fmt.Errorf("reap run %s: %w", run.Name, err)
+		}
+		reaped++
+	}
+	return reaped, nil
 }

@@ -5,6 +5,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ManagedByLabel marks a Run created by the REST API as an audit record. The
+// RunReconciler skips Runs carrying it (value ManagedByAPI) so API-written Runs
+// are never re-executed; externally-created Runs (kubectl/GitOps) omit it.
+const (
+	ManagedByLabel = "kato.zufardhiyaulhaq.com/managed-by"
+	ManagedByAPI   = "api"
+)
+
 type RunSpec struct {
 	UseCase string            `json:"useCase"`
 	Inputs  map[string]string `json:"inputs,omitempty"`
@@ -37,12 +45,15 @@ type RunStepIteration struct {
 }
 
 type RunStatus struct {
-	// +kubebuilder:validation:Enum=Succeeded;PartiallySucceeded;Failed
+	// +kubebuilder:validation:Enum=Running;Succeeded;PartiallySucceeded;Failed
 	Phase       string       `json:"phase,omitempty"`
 	StartedAt   *metav1.Time `json:"startedAt,omitempty"`
 	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
 	Steps       []RunStep    `json:"steps,omitempty"`
 	Summary     string       `json:"summary,omitempty"`
+	// Note records a reconciler-level message: a validation failure reason for an
+	// externally-created Run, or the reap note when a stuck Running Run is failed.
+	Note string `json:"note,omitempty"`
 	// Warning is set when the summary could not be produced (LLM down, no
 	// default ModelConfig, ...) while step outputs are still valid.
 	Warning string `json:"warning,omitempty"`

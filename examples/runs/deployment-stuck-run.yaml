@@ -1,0 +1,14 @@
+# A Run with a fixed name (metadata.name instead of generateName). A fixed name
+# is convenient for GitOps, but because a Run is execute-once, re-applying the
+# same name will NOT re-run it — delete it first, or use generateName for a fresh
+# run each time. Requires the deployment-stuck UseCase to be applied and Ready.
+apiVersion: kato.zufardhiyaulhaq.com/v1alpha1
+kind: Run
+metadata:
+  name: deployment-stuck-payments
+  namespace: default
+spec:
+  useCase: deployment-stuck
+  inputs:
+    namespace: default
+    deployment: payments

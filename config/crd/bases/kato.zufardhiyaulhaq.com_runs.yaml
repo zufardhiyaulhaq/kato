@@ -64,8 +64,14 @@ spec:
               modelConfig:
                 description: ModelConfig records which ModelConfig produced the summary.
                 type: string
+              note:
+                description: |-
+                  Note records a reconciler-level message: a validation failure reason for an
+                  externally-created Run, or the reap note when a stuck Running Run is failed.
+                type: string
               phase:
                 enum:
+                - Running
                 - Succeeded
                 - PartiallySucceeded
                 - Failed

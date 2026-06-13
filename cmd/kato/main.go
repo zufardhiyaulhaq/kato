@@ -105,6 +105,15 @@ func run() error {
 		Registry:  reg,
 		Summarize: sum.Summarize, StepTimeout: cfg.StepTimeout,
 	}
+	if err := (&controller.RunReconciler{
+		Client:      mgr.GetClient(),
+		UseCases:    ucCache,
+		Execute:     eng.Execute,
+		Concurrency: cfg.RunReconcileConcurrency,
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("setup run controller: %w", err)
+	}
+
 	st := &store.Store{Client: directClient, Namespace: cfg.Namespace, TTL: cfg.RunTTL}
 
 	srv := &server.Server{
@@ -118,7 +127,7 @@ func run() error {
 	if err := mgr.Add(httpRunnable{httpServer, log}); err != nil {
 		return err
 	}
-	if err := mgr.Add(gcRunnable{st, cfg.GCInterval, log}); err != nil {
+	if err := mgr.Add(gcRunnable{store: st, interval: cfg.GCInterval, maxDuration: cfg.RunMaxDuration, log: log}); err != nil {
 		return err
 	}
 
@@ -140,9 +149,10 @@ func (h httpRunnable) Start(ctx context.Context) error {
 }
 
 type gcRunnable struct {
-	store    *store.Store
-	interval time.Duration
-	log      interface{ Info(string, ...any) }
+	store       *store.Store
+	interval    time.Duration
+	maxDuration time.Duration
+	log         interface{ Info(string, ...any) }
 }
 
 func (g gcRunnable) Start(ctx context.Context) error {
@@ -158,6 +168,12 @@ func (g gcRunnable) Start(ctx context.Context) error {
 				g.log.Info("run GC error", "err", err.Error())
 			} else if n > 0 {
 				g.log.Info("garbage-collected runs", "count", n)
+			}
+			reaped, err := g.store.ReapStuckRuns(ctx, time.Now(), g.maxDuration)
+			if err != nil {
+				g.log.Info("run reap error", "err", err.Error())
+			} else if reaped > 0 {
+				g.log.Info("reaped stuck runs", "count", reaped)
 			}
 		}
 	}

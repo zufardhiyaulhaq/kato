@@ -3,6 +3,12 @@ image:
   tag: "0.1.0"
   pullPolicy: IfNotPresent
 
+# Keep this at 1. kato is a single-process operator: the UseCase/ModelConfig
+# caches the REST API reads are populated in-process by their reconcilers, and
+# the RunReconciler is a single active executor of externally-created Runs.
+# Running >1 replica without leader election + per-controller cache warming would
+# serve from empty caches on non-leaders and duplicate run-execution work. HA is
+# possible but is a separate change to the operator, not just a replica bump.
 replicaCount: 1
 
 config:
@@ -10,6 +16,13 @@ config:
   runTTL: 168h        # 7 days
   maxConcurrent: 10
   gcInterval: 1h
+  # Concurrent execution of externally-created (kubectl/GitOps) Run CRs; separate
+  # from maxConcurrent, which bounds the REST API path.
+  runReconcileConcurrency: 2
+  # A Run stuck in phase=Running longer than this is reaped to Failed by the GC
+  # sweep. This force-fails ANY run exceeding it (a healthy long run as well as a
+  # crash), so keep it comfortably above your longest expected run.
+  runMaxDuration: 1h
 
 service:
   type: ClusterIP

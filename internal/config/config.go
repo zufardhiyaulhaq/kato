@@ -10,12 +10,18 @@ import (
 )
 
 type Config struct {
-	Namespace     string        // kato's own namespace (for Runs + Secrets)
-	ListenAddr    string        // e.g. ":8080"
+	Namespace     string // kato's own namespace (for Runs + Secrets)
+	ListenAddr    string // e.g. ":8080"
 	StepTimeout   time.Duration
 	RunTTL        time.Duration
 	MaxConcurrent int
 	GCInterval    time.Duration
+	// RunReconcileConcurrency bounds concurrent execution of externally-created
+	// Runs (MaxConcurrentReconciles); separate from the API's MaxConcurrent.
+	RunReconcileConcurrency int
+	// RunMaxDuration is the staleness threshold after which a Run stuck in
+	// Running (controller crashed mid-run) is reaped to Failed.
+	RunMaxDuration time.Duration
 }
 
 func Load() Config {
@@ -26,6 +32,9 @@ func Load() Config {
 		RunTTL:        getDuration("KATO_RUN_TTL", 7*24*time.Hour),
 		MaxConcurrent: getInt("KATO_MAX_CONCURRENT", 10),
 		GCInterval:    getDuration("KATO_GC_INTERVAL", time.Hour),
+
+		RunReconcileConcurrency: getInt("KATO_RUN_RECONCILE_CONCURRENCY", 2),
+		RunMaxDuration:          getDuration("KATO_RUN_MAX_DURATION", time.Hour),
 	}
 }
 

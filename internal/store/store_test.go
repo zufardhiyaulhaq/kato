@@ -134,3 +134,90 @@ func TestGCDeletesExpiredRuns(t *testing.T) {
 		t.Errorf("remaining = %+v", list.Items)
 	}
 }
+
+func ptrTime(t time.Time) *metav1.Time {
+	mt := metav1.NewTime(t)
+	return &mt
+}
+
+func TestBuildRunStatusMapsResult(t *testing.T) {
+	res := engine.Result{
+		Phase:       engine.PhaseSucceeded,
+		Summary:     "ok",
+		ModelConfig: "openai",
+		Steps: []engine.StepResult{
+			{Name: "s", Outcome: engine.OutcomeCompleted, Outputs: map[string]any{"phase": "Running"}},
+		},
+	}
+	start := time.Unix(100, 0)
+	end := time.Unix(200, 0)
+	st, err := BuildRunStatus(res, start, end)
+	if err != nil {
+		t.Fatalf("BuildRunStatus: %v", err)
+	}
+	if st.Phase != engine.PhaseSucceeded || st.Summary != "ok" || st.ModelConfig != "openai" {
+		t.Errorf("status = %+v", st)
+	}
+	if len(st.Steps) != 1 || st.Steps[0].Outputs == nil {
+		t.Errorf("steps = %+v", st.Steps)
+	}
+	if st.StartedAt == nil || !st.StartedAt.Time.Equal(start) {
+		t.Errorf("startedAt = %v, want %v", st.StartedAt, start)
+	}
+}
+
+func TestSaveRunSetsManagedByLabel(t *testing.T) {
+	c := newFakeClient(t)
+	s := &Store{Client: c, Namespace: "kato"}
+	run, err := s.SaveRun(context.Background(), "pod-crashloop", nil,
+		engine.Result{Phase: engine.PhaseSucceeded}, time.Unix(1, 0), time.Unix(2, 0))
+	if err != nil {
+		t.Fatalf("SaveRun: %v", err)
+	}
+	if run.Labels[v1alpha1.ManagedByLabel] != v1alpha1.ManagedByAPI {
+		t.Errorf("managed-by label = %q, want %q", run.Labels[v1alpha1.ManagedByLabel], v1alpha1.ManagedByAPI)
+	}
+}
+
+func TestReapStuckRunsFailsOnlyStale(t *testing.T) {
+	now := time.Unix(10000, 0)
+	stuck := &v1alpha1.Run{
+		ObjectMeta: metav1.ObjectMeta{Name: "stuck", Namespace: "default"},
+		Status:     v1alpha1.RunStatus{Phase: engine.PhaseRunning, StartedAt: ptrTime(now.Add(-2 * time.Hour))},
+	}
+	fresh := &v1alpha1.Run{
+		ObjectMeta: metav1.ObjectMeta{Name: "fresh", Namespace: "default"},
+		Status:     v1alpha1.RunStatus{Phase: engine.PhaseRunning, StartedAt: ptrTime(now.Add(-time.Minute))},
+	}
+	done := &v1alpha1.Run{
+		ObjectMeta: metav1.ObjectMeta{Name: "done", Namespace: "kato"},
+		Status:     v1alpha1.RunStatus{Phase: engine.PhaseSucceeded, StartedAt: ptrTime(now.Add(-3 * time.Hour))},
+	}
+	c := newFakeClient(t, stuck, fresh, done)
+	s := &Store{Client: c, Namespace: "kato", TTL: time.Hour}
+
+	n, err := s.ReapStuckRuns(context.Background(), now, time.Hour)
+	if err != nil {
+		t.Fatalf("ReapStuckRuns: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("reaped %d, want 1", n)
+	}
+	var got v1alpha1.Run
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "stuck"}, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status.Phase != engine.PhaseFailed {
+		t.Errorf("stuck phase = %q, want Failed", got.Status.Phase)
+	}
+	if got.Status.Note == "" {
+		t.Error("stuck Note is empty")
+	}
+	var stillFresh v1alpha1.Run
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "fresh"}, &stillFresh); err != nil {
+		t.Fatal(err)
+	}
+	if stillFresh.Status.Phase != engine.PhaseRunning {
+		t.Errorf("fresh phase = %q, want Running (untouched)", stillFresh.Status.Phase)
+	}
+}

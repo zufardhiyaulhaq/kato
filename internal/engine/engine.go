@@ -14,6 +14,7 @@ const (
 	OutcomeSkipped   = "skipped"
 	OutcomeFailed    = "failed"
 
+	PhaseRunning            = "Running"
 	PhaseSucceeded          = "Succeeded"
 	PhasePartiallySucceeded = "PartiallySucceeded"
 	PhaseFailed             = "Failed"

@@ -35,6 +35,10 @@ spec:
               value: {{ .Values.config.maxConcurrent | quote }}
             - name: KATO_GC_INTERVAL
               value: {{ .Values.config.gcInterval | quote }}
+            - name: KATO_RUN_RECONCILE_CONCURRENCY
+              value: {{ .Values.config.runReconcileConcurrency | quote }}
+            - name: KATO_RUN_MAX_DURATION
+              value: {{ .Values.config.runMaxDuration | quote }}
           readinessProbe:
             httpGet: { path: /readyz, port: {{ .Values.service.port }} }
           livenessProbe:
