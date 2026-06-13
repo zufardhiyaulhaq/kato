@@ -1,0 +1,232 @@
+# Troubleshoot cluster DNS in kube-system: the CoreDNS Deployment (+ its HPA and
+# Corefile), the node-local-dns DaemonSet (+ its Corefile), and the kube-dns
+# Service. This UseCase targets FIXED workloads, so it takes no inputs — run it
+# with an empty body:
+#
+#   curl -s -X POST localhost:8080/api/v1/usecases/cluster-dns/run -d '{}' | jq
+#
+# or by creating a Run CR (kubectl/GitOps). A Run is execute-once: re-applying the
+# same name is a no-op, so to re-run, `kubectl delete run <name>` first (or use a
+# new name):
+#
+#   kubectl apply -f - <<'EOF'
+#   apiVersion: kato.zufardhiyaulhaq.com/v1alpha1
+#   kind: Run
+#   metadata: { name: cluster-dns-check, namespace: infrastructure }
+#   spec: { useCase: cluster-dns }
+#   EOF
+#
+apiVersion: kato.zufardhiyaulhaq.com/v1alpha1
+kind: UseCase
+metadata:
+  name: cluster-dns
+spec:
+  description: "Troubleshoot cluster DNS (CoreDNS + node-local-dns + kube-dns) in kube-system"
+  steps:
+    # --- CoreDNS Deployment, its autoscaler, and its config ---
+    - name: coredns-deployment
+      method: check_deployment_status
+      with:
+        namespace: kube-system
+        name: coredns
+
+    - name: coredns-hpa
+      method: check_hpa
+      with:
+        namespace: kube-system
+        name: coredns
+      summaryFilter: [exists, scaleTarget, minReplicas, maxReplicas, currentReplicas, desiredReplicas, atMax, scalingLimited, metrics, conditionReason]
+
+    - name: coredns-config
+      method: check_configmap
+      with:
+        namespace: kube-system
+        name: coredns
+        keys: Corefile
+      summaryFilter: [exists, keys, data]
+
+    - name: coredns-events
+      method: check_events
+      with:
+        namespace: kube-system
+        involvedObject: coredns
+        limit: "5"
+      summaryFilter: [events, warningCount]
+
+    # --- node-local-dns DaemonSet and its config ---
+    - name: nodelocaldns-daemonset
+      method: check_daemonset_status
+      with:
+        namespace: kube-system
+        name: node-local-dns
+
+    - name: nodelocaldns-config
+      method: check_configmap
+      with:
+        namespace: kube-system
+        name: node-local-dns
+        keys: Corefile
+      summaryFilter: [exists, keys, data]
+
+    - name: nodelocaldns-events
+      method: check_events
+      with:
+        namespace: kube-system
+        involvedObject: node-local-dns
+        limit: "5"
+      summaryFilter: [events, warningCount]
+
+    # --- The kube-dns Service the rest of the cluster resolves against ---
+    - name: kube-dns-service
+      method: check_service_endpoints
+      with:
+        namespace: kube-system
+        name: kube-dns
+
+    # --- CoreDNS failing-pod drill-down ---
+    - name: coredns-failing
+      method: list_failing_pods
+      with:
+        namespace: kube-system
+        kind: Deployment
+        name: coredns
+        includeNotReady: "true"
+
+    - name: coredns-pod-status
+      forEach: $(steps.coredns-failing.pods)
+      maxItems: 2
+      when: $(steps.coredns-failing.anyFailing)
+      method: check_pod_status
+      with:
+        namespace: $(item.namespace)
+        name: $(item.name)
+
+    - name: coredns-pod-events
+      forEach: $(steps.coredns-failing.pods)
+      maxItems: 2
+      when: $(steps.coredns-failing.anyFailing)
+      method: check_events
+      with:
+        namespace: $(item.namespace)
+        involvedObject: $(item.name)
+        limit: "5"
+      summaryFilter: [events, warningCount]
+
+    - name: coredns-pod-logs
+      forEach: $(steps.coredns-failing.pods)
+      maxItems: 2
+      when: $(steps.coredns-failing.anyFailing)
+      method: check_pod_logs
+      with:
+        namespace: $(item.namespace)
+        name: $(item.name)
+        container: coredns
+        tailLines: "10"
+      summaryFilter: [logs]
+
+    - name: coredns-pod-previous-logs
+      forEach: $(steps.coredns-failing.pods)
+      maxItems: 2
+      when: $(steps.coredns-failing.anyFailing)
+      method: check_pod_logs
+      with:
+        namespace: $(item.namespace)
+        name: $(item.name)
+        container: coredns
+        previous: "true"
+        tailLines: "10"
+      summaryFilter: [logs]
+
+    # --- node-local-dns failing-pod drill-down ---
+    - name: nodelocaldns-failing
+      method: list_failing_pods
+      with:
+        namespace: kube-system
+        kind: DaemonSet
+        name: node-local-dns
+        includeNotReady: "true"
+
+    - name: nodelocaldns-pod-status
+      forEach: $(steps.nodelocaldns-failing.pods)
+      maxItems: 2
+      when: $(steps.nodelocaldns-failing.anyFailing)
+      method: check_pod_status
+      with:
+        namespace: $(item.namespace)
+        name: $(item.name)
+
+    - name: nodelocaldns-pod-logs
+      forEach: $(steps.nodelocaldns-failing.pods)
+      maxItems: 2
+      when: $(steps.nodelocaldns-failing.anyFailing)
+      method: check_pod_logs
+      with:
+        namespace: $(item.namespace)
+        name: $(item.name)
+        container: node-cache
+        tailLines: "10"
+      summaryFilter: [logs]
+
+    # --- Resourcing (running pods): requests/limits vs live usage ---
+    - name: coredns-pods
+      method: list_pods
+      with:
+        namespace: kube-system
+        kind: Deployment
+        name: coredns
+
+    - name: coredns-pod-resources
+      forEach: $(steps.coredns-pods.pods)
+      maxItems: 1
+      method: check_pod_resources
+      with:
+        namespace: $(item.namespace)
+        name: $(item.name)
+
+    - name: coredns-pod-usage
+      forEach: $(steps.coredns-pods.pods)
+      maxItems: 2
+      method: check_pod_usage
+      with:
+        namespace: $(item.namespace)
+        name: $(item.name)
+      summaryFilter: [containers, metricsAvailable]
+
+    - name: nodelocaldns-pods
+      method: list_pods
+      with:
+        namespace: kube-system
+        kind: DaemonSet
+        name: node-local-dns
+
+    - name: nodelocaldns-pod-resources
+      forEach: $(steps.nodelocaldns-pods.pods)
+      maxItems: 1
+      method: check_pod_resources
+      with:
+        namespace: $(item.namespace)
+        name: $(item.name)
+
+    - name: nodelocaldns-pod-usage
+      forEach: $(steps.nodelocaldns-pods.pods)
+      maxItems: 2
+      method: check_pod_usage
+      with:
+        namespace: $(item.namespace)
+        name: $(item.name)
+      summaryFilter: [containers, metricsAvailable]
+  summary:
+    prompt: |
+      From the evidence, give the most likely root cause and a concrete fix for
+      cluster DNS (kube-system). If nothing is failing, say it looks healthy and
+      summarize the counts. Cover both layers: CoreDNS (central) and node-local-dns
+      (per-node cache).
+
+      Look for: CoreDNS pods CrashLoopBackOff or OOMKilled; a CoreDNS HPA pinned at
+      maxReplicas (atMax/scalingLimited true → DNS is capacity-constrained, raise
+      maxReplicas or requests); node-local-dns not ready on some nodes (desired vs
+      ready); the kube-dns Service having no ready endpoints (cluster-wide DNS
+      outage); a missing or malformed Corefile (plugin/forward errors in logs).
+      Also flag improper pod resources: no limits set, usage near the memory limit
+      (OOM risk), or limits far from actual usage; suggest a right-sized
+      request/limit.

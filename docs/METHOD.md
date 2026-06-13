@@ -46,6 +46,7 @@ runtime.
 | [`describe_deployment`](#describe_deployment) | Sanitized deployment manifest + structured fields |
 | [`check_replicaset`](#check_replicaset) | State of the ReplicaSets owned by a deployment |
 | [`check_daemonset_status`](#check_daemonset_status) | DaemonSet scheduling and readiness counts |
+| [`check_hpa`](#check_hpa) | HPA replica bounds, current scale, metrics, and scaling conditions |
 | [`check_service_endpoints`](#check_service_endpoints) | Does the service selector match ready endpoints? |
 | [`describe_service`](#describe_service) | Sanitized service manifest |
 | [`check_ingress`](#check_ingress) | Ingress rules, backend service existence, LB status |
@@ -356,6 +357,35 @@ DaemonSet scheduling and readiness counts.
 | `available` | int | pods available (`status.numberAvailable`) |
 | `misscheduled` | int | pods running where they should not be (`status.numberMisscheduled`) |
 | `updatedScheduled` | int | pods on the updated template (`status.updatedNumberScheduled`) |
+
+---
+
+### `check_hpa`
+
+HorizontalPodAutoscaler replica bounds, current scale, metrics, and scaling conditions. A missing HPA is reported as `exists: false` (no autoscaling), not an error.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `namespace` | yes | HPA namespace |
+| `name` | yes | HPA name |
+
+**Outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `exists` | bool | HPA exists |
+| `scaleTarget` | string | scale target, e.g. `Deployment/coredns` |
+| `minReplicas` | int | `spec.minReplicas` (1 if unset) |
+| `maxReplicas` | int | `spec.maxReplicas` |
+| `currentReplicas` | int | `status.currentReplicas` |
+| `desiredReplicas` | int | `status.desiredReplicas` |
+| `atMax` | bool | `currentReplicas >= maxReplicas` (saturated, cannot scale out further) |
+| `ableToScale` | bool | `AbleToScale` condition is True |
+| `scalingLimited` | bool | `ScalingLimited` condition is True (held at a min/max bound) |
+| `metrics` | string | per-metric current vs target, one line each: `<name>: cur=<v> target=<v>` |
+| `conditionReason` | string | reason/message when scaling is limited or unable to scale, `""` otherwise |
 
 ---
 

@@ -1,7 +1,7 @@
 apiVersion: kato.zufardhiyaulhaq.com/v1alpha1
 kind: Run
 metadata:
-  name: terway-eniip-run-00001
+  name: cluster-dns-run-00001
   namespace: infrastructure
 spec:
-  useCase: terway-eniip
+  useCase: cluster-dns

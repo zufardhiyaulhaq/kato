@@ -19,7 +19,7 @@
 apiVersion: kato.zufardhiyaulhaq.com/v1alpha1
 kind: UseCase
 metadata:
-  name: terway-eniip-daemonset
+  name: terway-eniip
 spec:
   description: "Troubleshoot the terway-eniip CNI DaemonSet in kube-system"
   steps:
