@@ -51,6 +51,7 @@ Run order matters: **Task 1 (render helpers) first** — Tasks 2–8 depend on i
 
 Create `internal/methods/render_test.go`:
 
+{% raw %}
 ```go
 package methods
 
@@ -124,6 +125,7 @@ func TestRenderPorts(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -314,6 +316,7 @@ Expected: PASS.
 
 - [ ] **Step 1: Write the failing test** — append to `internal/methods/pod_describe_test.go`:
 
+{% raw %}
 ```go
 func TestDescribePodTroubleshootingFields(t *testing.T) {
 	pod := &corev1.Pod{
@@ -361,6 +364,7 @@ func TestDescribePodTroubleshootingFields(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
 
 Add `"k8s.io/apimachinery/pkg/util/intstr"` to the test file's imports.
 
@@ -415,6 +419,7 @@ Expected: PASS.
 
 - [ ] **Step 1: Write the failing test** — append to `internal/methods/workloads_test.go`:
 
+{% raw %}
 ```go
 func TestDescribeDeploymentRolloutFields(t *testing.T) {
 	ms := intstr.FromString("25%")
@@ -462,6 +467,7 @@ func TestDescribeDeploymentRolloutFields(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
 
 Ensure `workloads_test.go` imports `appsv1 "k8s.io/api/apps/v1"`, `corev1`, `metav1`, `"k8s.io/apimachinery/pkg/util/intstr"`, `"k8s.io/client-go/kubernetes/fake"`, `context`, `testing` (add any missing). `i32` is already defined in `hpa_test.go`.
 
@@ -762,6 +768,7 @@ Expected: PASS.
 
 - [ ] **Step 1: Write the failing test** — create `internal/methods/daemonset_describe_test.go`:
 
+{% raw %}
 ```go
 package methods
 
@@ -821,6 +828,7 @@ func TestDescribeDaemonSet(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -1080,6 +1088,7 @@ Expected: PASS.
 
 - [ ] **Step 1: Write the failing test** — create `internal/methods/statefulset_describe_test.go`:
 
+{% raw %}
 ```go
 package methods
 
@@ -1145,6 +1154,7 @@ func TestDescribeStatefulSet(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
 
 > Note: in this client-go version `PersistentVolumeClaimSpec.Resources` is of type `corev1.VolumeResourceRequirements` (renamed from `ResourceRequirements`). Use it exactly as above.
 
@@ -1641,6 +1651,7 @@ Expected: PASS.
 
 - [ ] **Step 1: Write the failing test** — create `internal/methods/cronjob_test.go`:
 
+{% raw %}
 ```go
 package methods
 
@@ -1699,6 +1710,7 @@ func TestCheckCronJobMissing(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
 
 - [ ] **Step 2: Run the test to verify it fails**
 

@@ -234,6 +234,7 @@ Expected: PASS (both subtests).
 
 Append to `internal/store/store_test.go`:
 
+{% raw %}
 ```go
 func ptrTime(t time.Time) *metav1.Time {
 	mt := metav1.NewTime(t)
@@ -322,6 +323,7 @@ func TestReapStuckRunsFailsOnlyStale(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -606,6 +608,7 @@ Expected: no output (success).
 
 Create `internal/controller/run_controller_test.go`:
 
+{% raw %}
 ```go
 package controller
 
@@ -770,6 +773,7 @@ func TestRunReconciler(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
 
 - [ ] **Step 4: Run the reconciler test to verify it passes**
 
@@ -890,7 +894,7 @@ Expected: no output (success).
 
 - [ ] **Step 1: Grant cluster-wide runs access in the ClusterRole**
 
-In `charts/kato/templates/rbac.yaml`, inside the `ClusterRole` named `{{ include "kato.name" . }}-reader`, after the existing `usecases/status, modelconfigs/status` rule (the block ending at the `---` before the ClusterRoleBinding), add two rules:
+In `charts/kato/templates/rbac.yaml`, inside the `ClusterRole` named `{% raw %}{{ include "kato.name" . }}{% endraw %}-reader`, after the existing `usecases/status, modelconfigs/status` rule (the block ending at the `---` before the ClusterRoleBinding), add two rules:
 
 ```yaml
   - apiGroups: ["kato.zufardhiyaulhaq.com"]

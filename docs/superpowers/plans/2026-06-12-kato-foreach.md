@@ -57,6 +57,7 @@
 `internal/methods/listoutput_test.go`:
 
 {% raw %}
+{% raw %}
 ```go
 package methods
 
@@ -105,6 +106,7 @@ func TestListOutputsOf(t *testing.T) {
 }
 ```
 {% endraw %}
+{% endraw %}
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -115,6 +117,7 @@ Expected: FAIL — `ListOutputField`, `ListOutputsOf` undefined.
 
 Add after the `OutputField` type:
 
+{% raw %}
 ```go
 // ListOutputField declares a list output: a named list whose items are records
 // of typed fields. Lists are consumable only by a UseCase `forEach` step, never
@@ -139,14 +142,17 @@ func ListOutputsOf(m Method) []ListOutputField {
 	return nil
 }
 ```
+{% endraw %}
 
 Also update the `Outputs` doc comment to:
 
+{% raw %}
 ```go
 // Outputs values are string, int64, or bool per the declared OutputField type,
 // or []map[string]any for a declared ListOutputField (a list of item records).
 type Outputs map[string]any
 ```
+{% endraw %}
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -171,6 +177,8 @@ git commit -m "feat: list-output contract for methods (ListProducer)"
 
 `internal/methods/list_failing_pods_test.go`:
 
+{% raw %}
+{% raw %}
 ```go
 package methods
 
@@ -326,6 +334,8 @@ func TestListFailingPodsDeclaresListOutput(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
+{% endraw %}
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -334,6 +344,7 @@ Expected: FAIL — method not registered.
 
 - [ ] **Step 3: Create `internal/methods/list_failing_pods.go`**
 
+{% raw %}
 ```go
 package methods
 
@@ -577,6 +588,7 @@ func init() {
 	builtinFns = append(builtinFns, func(r *Registry) { r.Register(listFailingPods{}) })
 }
 ```
+{% endraw %}
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -715,6 +727,8 @@ git commit -m "feat: parse \$(item.<field>) references"
 
 `api/v1alpha1/foreach_types_test.go`:
 
+{% raw %}
+{% raw %}
 ```go
 package v1alpha1
 
@@ -746,6 +760,8 @@ func TestForEachFieldsAndDeepCopy(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
+{% endraw %}
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -826,6 +842,7 @@ git commit -m "feat: forEach/maxItems Step fields and Run iteration records"
 
 `internal/engine/validate_foreach_test.go`:
 
+{% raw %}
 ```go
 package engine
 
@@ -899,6 +916,7 @@ func TestValidateForEachErrors(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -924,6 +942,7 @@ func (s Scope) typeOf(r Ref) (*cel.Type, error) {
 
 Replace the whole function body with the version below. It adds: per-step list-output tracking, `forEach` reference validation, `item`-ref handling in `with`, and the `forEach`-only / `maxItems` rules.
 
+{% raw %}
 ```go
 func ValidateUseCase(uc *v1alpha1.UseCase, reg *methods.Registry, modelConfigExists func(string) bool) []string {
 	var errs []string
@@ -1057,6 +1076,7 @@ func ValidateUseCase(uc *v1alpha1.UseCase, reg *methods.Registry, modelConfigExi
 	return errs
 }
 ```
+{% endraw %}
 
 - [ ] **Step 5: Run test to verify it passes**
 
@@ -1084,6 +1104,8 @@ git commit -m "feat: watch-time validation for forEach, list refs, and item refs
 
 `internal/engine/engine_foreach_test.go`:
 
+{% raw %}
+{% raw %}
 ```go
 package engine
 
@@ -1183,6 +1205,8 @@ func TestExecuteForEachZeroItemsSkips(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
+{% endraw %}
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1421,6 +1445,8 @@ In `SaveRun`, replace the step-building loop with:
 
 Append to `internal/store/store_test.go`:
 
+{% raw %}
+{% raw %}
 ```go
 func TestSaveRunPersistsIterations(t *testing.T) {
 	c := newFakeClient(t)
@@ -1457,6 +1483,8 @@ func TestSaveRunPersistsIterations(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
+{% endraw %}
 
 - [ ] **Step 8: Run store test to verify it passes**
 
@@ -1482,6 +1510,8 @@ git commit -m "feat: forEach iteration execution and Run iteration persistence"
 
 `internal/summarizer/summarizer_foreach_test.go`:
 
+{% raw %}
+{% raw %}
 ```go
 package summarizer
 
@@ -1529,6 +1559,8 @@ func TestBuildEvidenceRendersIterations(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
+{% endraw %}
 
 - [ ] **Step 2: Run test to verify it fails**
 
