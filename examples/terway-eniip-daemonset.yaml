@@ -34,7 +34,7 @@ spec:
       with:
         namespace: kube-system
         involvedObject: terway-eniip
-        limit: "10"
+        limit: "5"
       summaryFilter: [events, warningCount]
 
     - name: eni-config
@@ -76,7 +76,7 @@ spec:
       with:
         namespace: $(item.namespace)
         involvedObject: $(item.name)
-        limit: "10"
+        limit: "5"
       summaryFilter: [events, warningCount]
 
     - name: pod-describe
@@ -136,7 +136,7 @@ spec:
       with:
         namespace: $(item.namespace)
         name: $(item.name)
-      summaryFilter: [cpuMillicores, memoryBytes, metricsAvailable]
+      summaryFilter: [containers, metricsAvailable]
   summary:
     prompt: |
       From the evidence, give the most likely root cause and a concrete fix for the

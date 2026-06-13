@@ -3,9 +3,9 @@ package methods
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -13,13 +13,8 @@ type checkPodResources struct{}
 
 func (checkPodResources) Name() string { return "check_pod_resources" }
 func (checkPodResources) Description() string {
-	return "Configured CPU/memory requests and limits from the pod spec (summed across containers)"
+	return "Configured CPU/memory requests and limits, per container (init containers marked)"
 }
-
-// Note on summing: requests sum over ALL containers, but limits sum only over the
-// containers that set them. So summed request can exceed summed limit when limits
-// are incomplete — the *LimitComplete flags report whether every container sets
-// that limit.
 
 func (checkPodResources) Params() []Param {
 	return []Param{
@@ -30,14 +25,17 @@ func (checkPodResources) Params() []Param {
 
 func (checkPodResources) OutputFields() []OutputField {
 	return []OutputField{
-		{Name: "cpuRequest", Type: FieldString, Description: `summed CPU request, e.g. "250m"; "0" if none set`},
-		{Name: "cpuLimit", Type: FieldString, Description: `summed CPU limit; "0" if none set`},
-		{Name: "memoryRequest", Type: FieldString, Description: `summed memory request, e.g. "256Mi"; "0" if none set`},
-		{Name: "memoryLimit", Type: FieldString, Description: `summed memory limit; "0" if none set`},
-		{Name: "noLimitsSet", Type: FieldBool, Description: "true if no container sets any CPU or memory limit"},
-		{Name: "cpuLimitComplete", Type: FieldBool, Description: "true only if EVERY container sets a CPU limit; when false, cpuLimit is partial and may be below cpuRequest"},
-		{Name: "memoryLimitComplete", Type: FieldBool, Description: "true only if EVERY container sets a memory limit; when false, memoryLimit is partial and may be below memoryRequest"},
+		{Name: "containers", Type: FieldString, Description: `per-container requests and limits, one line each; an unset value shown as "-"`},
+		{Name: "noLimitsSet", Type: FieldBool, Description: "true if no (non-init) container sets any CPU or memory limit"},
 	}
+}
+
+// qtyOr renders a resource quantity from the list, or "-" when it is not set.
+func qtyOr(rl corev1.ResourceList, name corev1.ResourceName) string {
+	if q, ok := rl[name]; ok {
+		return q.String()
+	}
+	return "-"
 }
 
 func (checkPodResources) Run(ctx context.Context, deps Deps, params map[string]string) (Outputs, error) {
@@ -45,33 +43,34 @@ func (checkPodResources) Run(ctx context.Context, deps Deps, params map[string]s
 	if err != nil {
 		return nil, fmt.Errorf("get pod %s/%s: %w", params["namespace"], params["name"], err)
 	}
-	var cpuReq, cpuLim, memReq, memLim resource.Quantity
-	withCPULimit, withMemLimit := 0, 0
-	for _, c := range pod.Spec.Containers {
-		if q, ok := c.Resources.Requests[corev1.ResourceCPU]; ok {
-			cpuReq.Add(q)
+
+	var b strings.Builder
+	anyRegularLimit := false
+	render := func(c *corev1.Container, init bool) {
+		_, hasCPULim := c.Resources.Limits[corev1.ResourceCPU]
+		_, hasMemLim := c.Resources.Limits[corev1.ResourceMemory]
+		if !init && (hasCPULim || hasMemLim) {
+			anyRegularLimit = true
 		}
-		if q, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
-			memReq.Add(q)
+		suffix := ""
+		if init {
+			suffix = " (init)"
 		}
-		if q, ok := c.Resources.Limits[corev1.ResourceCPU]; ok {
-			cpuLim.Add(q)
-			withCPULimit++
-		}
-		if q, ok := c.Resources.Limits[corev1.ResourceMemory]; ok {
-			memLim.Add(q)
-			withMemLimit++
-		}
+		fmt.Fprintf(&b, "%s%s: req cpu=%s mem=%s; lim cpu=%s mem=%s\n",
+			c.Name, suffix,
+			qtyOr(c.Resources.Requests, corev1.ResourceCPU), qtyOr(c.Resources.Requests, corev1.ResourceMemory),
+			qtyOr(c.Resources.Limits, corev1.ResourceCPU), qtyOr(c.Resources.Limits, corev1.ResourceMemory))
 	}
-	n := len(pod.Spec.Containers)
+	for i := range pod.Spec.InitContainers {
+		render(&pod.Spec.InitContainers[i], true)
+	}
+	for i := range pod.Spec.Containers {
+		render(&pod.Spec.Containers[i], false)
+	}
+
 	return Outputs{
-		"cpuRequest":          cpuReq.String(),
-		"cpuLimit":            cpuLim.String(),
-		"memoryRequest":       memReq.String(),
-		"memoryLimit":         memLim.String(),
-		"noLimitsSet":         withCPULimit == 0 && withMemLimit == 0,
-		"cpuLimitComplete":    withCPULimit == n,
-		"memoryLimitComplete": withMemLimit == n,
+		"containers":  strings.TrimRight(b.String(), "\n"),
+		"noLimitsSet": !anyRegularLimit,
 	}, nil
 }
 

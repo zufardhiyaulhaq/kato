@@ -134,9 +134,11 @@ Sanitized pod manifest (spec+status), with structured fields broken out.
 
 ### `check_pod_resources`
 
-Configured CPU/memory requests and limits from the pod spec (summed across
-containers). Always available — no metrics-server required. Pair with
-`check_pod_usage` to compare reserved vs. consumed.
+Configured CPU/memory requests and limits **per container** (init containers
+marked). Always available — no metrics-server required. Pair with
+`check_pod_usage` to compare reserved vs. consumed. Reported per container rather
+than summed: in a multi-container pod (e.g. terway-eniip) a summed view is
+meaningless when containers set limits unevenly.
 
 **Inputs**
 
@@ -149,29 +151,25 @@ containers). Always available — no metrics-server required. Pair with
 
 | Name | Type | Description |
 |---|---|---|
-| `cpuRequest` | string | summed CPU request, e.g. `"250m"`; `"0"` if none set |
-| `cpuLimit` | string | summed CPU limit; `"0"` if none set |
-| `memoryRequest` | string | summed memory request, e.g. `"256Mi"`; `"0"` if none set |
-| `memoryLimit` | string | summed memory limit; `"0"` if none set |
-| `noLimitsSet` | bool | true if no container sets any CPU or memory limit |
-| `cpuLimitComplete` | bool | true only if **every** container sets a CPU limit |
-| `memoryLimitComplete` | bool | true only if **every** container sets a memory limit |
+| `containers` | string | one line per container: `<name>[ (init)]: req cpu=<v> mem=<v>; lim cpu=<v> mem=<v>`, with an unset value shown as `-` |
+| `noLimitsSet` | bool | true if no (non-init) container sets any CPU or memory limit |
 
-> **Reading the sums:** requests sum over *all* containers, but limits sum only
-> over containers that *set* them. In a multi-container pod (e.g. terway-eniip)
-> where one container omits a limit, the summed request can exceed the summed
-> limit — that's expected, not a reversal. `cpuLimitComplete` / `memoryLimitComplete`
-> are `false` in that case, telling you the summed limit is partial (and that some
-> container is effectively unbounded for that resource).
+Example `containers`:
+
+```
+terway-init (init): req cpu=10m mem=-; lim cpu=- mem=-
+terway: req cpu=20m mem=320Mi; lim cpu=1100m mem=256Mi
+policy: req cpu=10m mem=-; lim cpu=- mem=-
+```
 
 ---
 
 ### `check_pod_usage`
 
-Live pod CPU/memory usage from metrics-server (`metrics.k8s.io`), summed across
-containers. Requires metrics-server in the cluster; when it is absent or has no
-data yet, the step still succeeds with `metricsAvailable: false` and zero values
-rather than failing.
+Live **per-container** CPU/memory usage from metrics-server (`metrics.k8s.io`).
+Requires metrics-server in the cluster; when it is absent or has no data yet, the
+step still succeeds with `metricsAvailable: false` and empty `containers` rather
+than failing.
 
 **Inputs**
 
@@ -184,9 +182,12 @@ rather than failing.
 
 | Name | Type | Description |
 |---|---|---|
-| `cpuMillicores` | int | current CPU usage in millicores, 0 if unavailable |
-| `memoryBytes` | int | current memory usage in bytes, 0 if unavailable |
+| `containers` | string | one line per container: `<name>: cpu=<m>m mem=<n>Mi`, sorted by name; empty if unavailable |
 | `metricsAvailable` | bool | false if metrics-server is absent or has no data for this pod yet |
+
+Pair with `check_pod_resources` to compare each container's live usage against its
+configured limit (e.g. `terway` using `cpu=83m mem=259Mi` against a `mem=256Mi`
+limit → over its memory limit, imminent OOM).
 
 ---
 

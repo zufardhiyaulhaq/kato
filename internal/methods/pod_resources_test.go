@@ -2,6 +2,7 @@ package methods
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -10,30 +11,38 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
-func TestCheckPodResourcesSumsContainers(t *testing.T) {
+func TestCheckPodResourcesPerContainer(t *testing.T) {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "app-1", Namespace: "payments"},
-		Spec: corev1.PodSpec{Containers: []corev1.Container{
-			{
-				Name: "app",
+		Spec: corev1.PodSpec{
+			InitContainers: []corev1.Container{{
+				Name: "setup",
 				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU:    resource.MustParse("100m"),
-						corev1.ResourceMemory: resource.MustParse("128Mi"),
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("10m")},
+				},
+			}},
+			Containers: []corev1.Container{
+				{
+					Name: "app",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
 					},
-					Limits: corev1.ResourceList{
-						corev1.ResourceCPU:    resource.MustParse("500m"),
-						corev1.ResourceMemory: resource.MustParse("256Mi"),
+				},
+				{
+					Name: "sidecar", // request only, no limits
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("150m")},
 					},
 				},
 			},
-			{
-				Name: "sidecar",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("150m")},
-				},
-			},
-		}},
+		},
 	}
 	client := fake.NewSimpleClientset(pod)
 	m, ok := Builtin().Get("check_pod_resources")
@@ -45,18 +54,22 @@ func TestCheckPodResourcesSumsContainers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	// The sidecar sets neither a CPU nor a memory limit, so the summed limits are
-	// partial: memoryRequest can even exceed memoryLimit, and *LimitComplete=false.
-	want := Outputs{
-		"cpuRequest": "250m", "cpuLimit": "500m",
-		"memoryRequest": "128Mi", "memoryLimit": "256Mi",
-		"noLimitsSet":      false,
-		"cpuLimitComplete": false, "memoryLimitComplete": false,
-	}
-	for k, v := range want {
-		if out[k] != v {
-			t.Errorf("%s = %#v, want %#v", k, out[k], v)
+	got, _ := out["containers"].(string)
+	for _, want := range []string{
+		"setup (init): req cpu=10m mem=-; lim cpu=- mem=-",
+		"app: req cpu=100m mem=128Mi; lim cpu=500m mem=256Mi",
+		"sidecar: req cpu=150m mem=-; lim cpu=- mem=-",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("containers missing line %q\n--- got ---\n%s", want, got)
 		}
+	}
+	// init container comes before regular containers.
+	if strings.Index(got, "setup (init)") > strings.Index(got, "app:") {
+		t.Errorf("init container should be listed first:\n%s", got)
+	}
+	if out["noLimitsSet"] != false { // app sets limits
+		t.Errorf("noLimitsSet = %v, want false", out["noLimitsSet"])
 	}
 }
 
@@ -75,7 +88,7 @@ func TestCheckPodResourcesNoLimits(t *testing.T) {
 	if out["noLimitsSet"] != true {
 		t.Errorf("noLimitsSet = %v, want true", out["noLimitsSet"])
 	}
-	if out["cpuRequest"] != "0" || out["memoryLimit"] != "0" {
-		t.Errorf("expected zero quantities, got cpuRequest=%v memoryLimit=%v", out["cpuRequest"], out["memoryLimit"])
+	if got, _ := out["containers"].(string); got != "app: req cpu=- mem=-; lim cpu=- mem=-" {
+		t.Errorf("containers = %q", got)
 	}
 }
