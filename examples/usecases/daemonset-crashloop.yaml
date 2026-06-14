@@ -27,6 +27,8 @@ spec:
         namespace: $(item.namespace)
         name: $(item.name)
         previous: "true"
+        tailLines: "50"
+        maxLineLength: "200"
       summaryFilter: [logs]
   summary:
     prompt: |

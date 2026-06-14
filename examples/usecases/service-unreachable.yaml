@@ -20,6 +20,7 @@ spec:
       with:
         namespace: $(inputs.namespace)
         name: $(inputs.service)
+      summaryFilter: [type, clusterIP, selector, ports]
   summary:
     prompt: |
       Explain why this service has no ready endpoints (selector mismatch, no

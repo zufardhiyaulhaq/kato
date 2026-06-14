@@ -20,11 +20,15 @@ spec:
       with:
         namespace: $(inputs.namespace)
         involvedObject: $(inputs.pod)
+        limit: "10"
+        maxLineLength: "200"
+      summaryFilter: [events, warningCount]
     - name: describe
       method: describe_pod
       with:
         namespace: $(inputs.namespace)
         name: $(inputs.pod)
+      summaryFilter: [conditions, nodeName, nodeSelector, tolerations, resourceRequests, priorityClassName]
   summary:
     prompt: |
       Explain why this pod is not being scheduled (resources, taints, affinity,

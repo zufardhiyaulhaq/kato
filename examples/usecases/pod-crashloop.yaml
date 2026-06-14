@@ -20,6 +20,9 @@ spec:
       with:
         namespace: $(inputs.namespace)
         involvedObject: $(inputs.pod)
+        limit: "10"
+        maxLineLength: "200"
+      summaryFilter: [events, warningCount]
     - name: previous-logs
       method: check_pod_logs
       when: $(steps.status.restartCount) > 0
@@ -27,12 +30,15 @@ spec:
         namespace: $(inputs.namespace)
         name: $(inputs.pod)
         previous: "true"
-        tailLines: "100"
+        tailLines: "20"
+        maxLineLength: "200"
+      summaryFilter: [logs]
     - name: node
       method: describe_node
       when: $(steps.status.nodeName) != ""
       with:
         name: $(steps.status.nodeName)
+      summaryFilter: [conditions, allocatableCPU, allocatableMemory, taints, unschedulable]
   summary:
     prompt: |
       You are a Kubernetes SRE. Based on the evidence, explain why this pod is
