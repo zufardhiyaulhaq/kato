@@ -2,11 +2,13 @@ package methods
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 )
 
@@ -203,6 +205,109 @@ func TestListFailingPodsNoneFailing(t *testing.T) {
 	}
 	if pods := out["pods"].([]map[string]any); len(pods) != 0 {
 		t.Errorf("pods should be empty, got %v", pods)
+	}
+	if out["listTruncated"] != false {
+		t.Errorf("expected listTruncated false on empty, got %v", out["listTruncated"])
+	}
+}
+
+func TestListFailingPodsCapsList(t *testing.T) {
+	owner := dsOwner("big")
+	objs := make([]runtime.Object, 0, 60)
+	for i := 0; i < 60; i++ {
+		// Distinct restartCounts so ordering is deterministic and worst-first.
+		objs = append(objs, crashingPod(fmt.Sprintf("p-%02d", i), "default", owner, int32(i), "CrashLoopBackOff"))
+	}
+	client := fake.NewSimpleClientset(objs...)
+	m, _ := Builtin().Get("list_failing_pods")
+
+	out, err := m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "default", "kind": "DaemonSet", "name": "big"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// count reflects the TRUE matched total, not the capped list.
+	if out["count"] != int64(60) {
+		t.Errorf("count = %v, want 60 (true total)", out["count"])
+	}
+	if out["listTruncated"] != true {
+		t.Errorf("listTruncated = %v, want true", out["listTruncated"])
+	}
+	pods := out["pods"].([]map[string]any)
+	if len(pods) != 50 {
+		t.Fatalf("pods len = %d, want 50 (capped)", len(pods))
+	}
+	// Worst-first survives the cap: highest restartCount (59) is first.
+	if pods[0]["restartCount"] != int64(59) {
+		t.Errorf("first kept pod restartCount = %v, want 59", pods[0]["restartCount"])
+	}
+}
+
+func TestListFailingPodsUnderCapNotTruncated(t *testing.T) {
+	client := fake.NewSimpleClientset(
+		crashingPod("a", "default", dsOwner("ds"), 2, "CrashLoopBackOff"),
+		crashingPod("b", "default", dsOwner("ds"), 1, "CrashLoopBackOff"),
+	)
+	m, _ := Builtin().Get("list_failing_pods")
+	out, _ := m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "default", "kind": "DaemonSet", "name": "ds"})
+	if out["listTruncated"] != false {
+		t.Errorf("listTruncated = %v, want false", out["listTruncated"])
+	}
+	if len(out["pods"].([]map[string]any)) != 2 {
+		t.Errorf("pods len = %d, want 2", len(out["pods"].([]map[string]any)))
+	}
+}
+
+func TestListFailingPodsDeclaresListTruncated(t *testing.T) {
+	m, _ := Builtin().Get("list_failing_pods")
+	found := false
+	for _, f := range m.OutputFields() {
+		if f.Name == "listTruncated" {
+			if f.Type != FieldBool {
+				t.Errorf("listTruncated type = %v, want bool", f.Type)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("listTruncated not declared in OutputFields")
+	}
+}
+
+func TestListFailingPodsMaxListItemsParam(t *testing.T) {
+	owner := dsOwner("big")
+	objs := make([]runtime.Object, 0, 60)
+	for i := 0; i < 60; i++ {
+		objs = append(objs, crashingPod(fmt.Sprintf("p-%02d", i), "default", owner, int32(i), "CrashLoopBackOff"))
+	}
+	client := fake.NewSimpleClientset(objs...)
+	m, _ := Builtin().Get("list_failing_pods")
+
+	out, err := m.Run(context.Background(), Deps{Kube: client}, map[string]string{
+		"namespace": "default", "kind": "DaemonSet", "name": "big", "maxListItems": "5"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out["count"] != int64(60) || out["listTruncated"] != true {
+		t.Errorf("count=%v listTruncated=%v, want 60,true", out["count"], out["listTruncated"])
+	}
+	if len(out["pods"].([]map[string]any)) != 5 {
+		t.Errorf("pods len = %d, want 5", len(out["pods"].([]map[string]any)))
+	}
+
+	out, err = m.Run(context.Background(), Deps{Kube: client}, map[string]string{
+		"namespace": "default", "kind": "DaemonSet", "name": "big", "maxListItems": "0"})
+	if err != nil {
+		t.Fatalf("Run (unlimited): %v", err)
+	}
+	if out["listTruncated"] != false || len(out["pods"].([]map[string]any)) != 60 {
+		t.Errorf("unlimited: listTruncated=%v len=%d, want false,60", out["listTruncated"], len(out["pods"].([]map[string]any)))
+	}
+
+	if _, err := m.Run(context.Background(), Deps{Kube: client}, map[string]string{
+		"namespace": "default", "kind": "DaemonSet", "name": "big", "maxListItems": "abc"}); err == nil {
+		t.Error("expected error for non-integer maxListItems")
 	}
 }
 

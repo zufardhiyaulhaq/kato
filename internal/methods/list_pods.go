@@ -19,6 +19,7 @@ func (listPods) Params() []Param {
 		{Name: "namespace", Required: true, Description: "Workload namespace"},
 		{Name: "kind", Required: true, Description: "Deployment | DaemonSet | StatefulSet"},
 		{Name: "name", Required: true, Description: "Workload name"},
+		{Name: "maxListItems", Description: `cap the pods list at this many items, worst-first (default "50"); "0" = unlimited`},
 	}
 }
 
@@ -26,6 +27,7 @@ func (listPods) OutputFields() []OutputField {
 	return []OutputField{
 		{Name: "count", Type: FieldInt, Description: "number of pods owned by the workload"},
 		{Name: "notReadyCount", Type: FieldInt, Description: "pods whose Ready condition is not True"},
+		{Name: "listTruncated", Type: FieldBool, Description: "true if more pods were owned than the pods list carries"},
 	}
 }
 
@@ -44,6 +46,10 @@ func (listPods) ListOutputs() []ListOutputField {
 }
 
 func (listPods) Run(ctx context.Context, deps Deps, params map[string]string) (Outputs, error) {
+	maxItems, err := parseMaxListItems(params)
+	if err != nil {
+		return nil, err
+	}
 	pods, err := ownedPods(ctx, deps.Kube, params["namespace"], params["kind"], params["name"])
 	if err != nil {
 		return nil, err
@@ -77,10 +83,16 @@ func (listPods) Run(ctx context.Context, deps Deps, params map[string]string) (O
 		}
 		return items[i]["name"].(string) < items[j]["name"].(string)
 	})
+	// Scalars reflect the true totals; the list is capped (worst-first) so a workload
+	// with very many pods can't overflow the Run CR or the LLM evidence.
+	total := len(items)
+	capped, truncated := capItems(items, maxItems)
+
 	return Outputs{
-		"count":         int64(len(items)),
+		"count":         int64(total),
 		"notReadyCount": int64(notReady),
-		"pods":          items,
+		"listTruncated": truncated,
+		"pods":          capped,
 	}, nil
 }
 

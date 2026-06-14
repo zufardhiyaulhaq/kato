@@ -707,6 +707,7 @@ Produces a **list output** (`pods`) consumable only by a `forEach` step.
 | `includeImagePull` | no | count `ImagePullBackOff`/`ErrImagePull`/`CreateContainerError` (default `true`) |
 | `includeOOM` | no | count **not-ready** pods whose last termination was `OOMKilled` / non-zero exit (default `true`). A recovered pod (now Running + Ready) is not counted on its historical `lastState` alone. |
 | `includeNotReady` | no | count any not-Ready pod (default `false`) |
+| `maxListItems` | no | cap the `pods` list at this many items, worst-first (default `50`; `0` = unlimited) |
 
 **Scalar outputs**
 
@@ -714,6 +715,7 @@ Produces a **list output** (`pods`) consumable only by a `forEach` step.
 |---|---|---|
 | `count` | int | number of failing pods matched |
 | `anyFailing` | bool | `count > 0` |
+| `listTruncated` | bool | `true` if more pods matched than the `pods` list carries |
 
 **List output `pods`** (items sorted worst-first by `restartCount`)
 
@@ -726,6 +728,8 @@ Produces a **list output** (`pods`) consumable only by a `forEach` step.
 
 Reference the list from a `forEach` step: `forEach: $(steps.<step>.pods)`, then
 bind `$(item.namespace)` / `$(item.name)` in the step's `with`.
+
+Note: `maxListItems` caps the `pods` list output itself; the step's separate `maxItems` field caps how many of those items a subsequent `forEach` iterates.
 
 ---
 
@@ -744,6 +748,7 @@ health, so resourcing can be assessed for pods that are not failing.
 | `namespace` | yes | workload namespace |
 | `kind` | yes | `Deployment` \| `DaemonSet` \| `StatefulSet` |
 | `name` | yes | workload name |
+| `maxListItems` | no | cap the `pods` list at this many items, worst-first (default `50`; `0` = unlimited) |
 
 **Scalar outputs**
 
@@ -751,6 +756,7 @@ health, so resourcing can be assessed for pods that are not failing.
 |---|---|---|
 | `count` | int | number of pods owned by the workload |
 | `notReadyCount` | int | pods whose Ready condition is not True |
+| `listTruncated` | bool | `true` if more pods were owned than the `pods` list carries |
 
 **List output `pods`** (items sorted not-ready first, then by `restartCount`)
 
@@ -764,3 +770,5 @@ health, so resourcing can be assessed for pods that are not failing.
 
 Reference the list from a `forEach` step: `forEach: $(steps.<step>.pods)`, then
 bind `$(item.namespace)` / `$(item.name)` in the step's `with`.
+
+Note: `maxListItems` caps the `pods` list output itself; the step's separate `maxItems` field caps how many of those items a subsequent `forEach` iterates.

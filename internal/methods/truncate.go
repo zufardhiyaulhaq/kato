@@ -2,6 +2,7 @@ package methods
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -13,6 +14,42 @@ func Truncate(s string, max int) string {
 	}
 	half := max / 2
 	return s[:half] + "\n[... truncated ...]\n" + s[len(s)-half:]
+}
+
+// defaultMaxListItems bounds a method's list output so a workload with very many matching
+// pods cannot overflow the Run CR (etcd ~1.5MB) or the LLM evidence. It is set above
+// the forEach iteration ceiling (engine.maxItemsCeiling = 20) so a bounded forEach is
+// never starved of items to examine.
+const defaultMaxListItems = 50
+
+// parseMaxListItems reads the maxListItems param: unset -> defaultMaxListItems, "0" ->
+// 0 (unlimited; capItems treats max <= 0 as no cap), a positive integer -> that cap.
+// A negative or non-integer value is a param error.
+func parseMaxListItems(params map[string]string) (int, error) {
+	v := params["maxListItems"]
+	if v == "" {
+		return defaultMaxListItems, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("param maxListItems: %w", err)
+	}
+	if n < 0 {
+		return 0, fmt.Errorf("param maxListItems: must be >= 0, got %d", n)
+	}
+	return n, nil
+}
+
+// capItems returns at most max items (the first max, preserving caller ordering) and
+// whether truncation occurred. max <= 0 returns items unchanged. Callers sort
+// worst-first before capping so the surviving items are the most important.
+func capItems(items []map[string]any, max int) ([]map[string]any, bool) {
+	if max <= 0 || len(items) <= max {
+		return items, false
+	}
+	out := make([]map[string]any, max)
+	copy(out, items[:max])
+	return out, true
 }
 
 // ClampLineLength trims each line of s to at most maxRunes characters, appending

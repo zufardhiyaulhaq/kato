@@ -28,6 +28,7 @@ func (listFailingPods) Params() []Param {
 		{Name: "includeImagePull", Description: `count ImagePullBackOff/ErrImagePull/CreateContainerError pods (default "true")`},
 		{Name: "includeOOM", Description: `count not-ready pods whose last termination was OOMKilled / non-zero exit (default "true"); a recovered Running+Ready pod is not counted on history alone`},
 		{Name: "includeNotReady", Description: `count any not-Ready pod (default "false")`},
+		{Name: "maxListItems", Description: `cap the pods list at this many items, worst-first (default "50"); "0" = unlimited`},
 	}
 }
 
@@ -35,6 +36,7 @@ func (listFailingPods) OutputFields() []OutputField {
 	return []OutputField{
 		{Name: "count", Type: FieldInt, Description: "number of failing pods matched"},
 		{Name: "anyFailing", Type: FieldBool, Description: "count > 0"},
+		{Name: "listTruncated", Type: FieldBool, Description: "true if more pods matched than the pods list carries"},
 	}
 }
 
@@ -53,6 +55,10 @@ func (listFailingPods) ListOutputs() []ListOutputField {
 
 func (listFailingPods) Run(ctx context.Context, deps Deps, params map[string]string) (Outputs, error) {
 	crit, err := parseFailCriteria(params)
+	if err != nil {
+		return nil, err
+	}
+	maxItems, err := parseMaxListItems(params)
 	if err != nil {
 		return nil, err
 	}
@@ -82,10 +88,16 @@ func (listFailingPods) Run(ctx context.Context, deps Deps, params map[string]str
 		return items[i]["name"].(string) < items[j]["name"].(string)
 	})
 
+	// Scalars reflect the true matched total; the list itself is capped (worst-first)
+	// so a huge match can't overflow the Run CR or the LLM evidence.
+	total := len(items)
+	capped, truncated := capItems(items, maxItems)
+
 	return Outputs{
-		"count":      int64(len(items)),
-		"anyFailing": len(items) > 0,
-		"pods":       items,
+		"count":         int64(total),
+		"anyFailing":    total > 0,
+		"listTruncated": truncated,
+		"pods":          capped,
 	}, nil
 }
 

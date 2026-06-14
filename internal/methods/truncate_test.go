@@ -63,3 +63,70 @@ func TestClampLineLengthMultibyte(t *testing.T) {
 		t.Errorf("multibyte = %q, want %q", got, want)
 	}
 }
+
+func TestParseMaxListItems(t *testing.T) {
+	cases := []struct {
+		name    string
+		params  map[string]string
+		want    int
+		wantErr bool
+	}{
+		{"unset", map[string]string{}, 50, false},
+		{"explicit", map[string]string{"maxListItems": "10"}, 10, false},
+		{"zero unlimited", map[string]string{"maxListItems": "0"}, 0, false},
+		{"non-integer", map[string]string{"maxListItems": "abc"}, 0, true},
+		{"negative", map[string]string{"maxListItems": "-1"}, 0, true},
+	}
+	for _, tc := range cases {
+		got, err := parseMaxListItems(tc.params)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("%s: expected error, got nil", tc.name)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: unexpected error %v", tc.name, err)
+		}
+		if got != tc.want {
+			t.Errorf("%s: got %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestCapItems(t *testing.T) {
+	mk := func(n int) []map[string]any {
+		out := make([]map[string]any, n)
+		for i := range out {
+			out[i] = map[string]any{"i": int64(i)}
+		}
+		return out
+	}
+
+	// Under the cap: unchanged, not truncated.
+	got, truncated := capItems(mk(3), 5)
+	if len(got) != 3 || truncated {
+		t.Errorf("under cap: len=%d truncated=%v, want 3,false", len(got), truncated)
+	}
+
+	// Exactly at the cap: unchanged, not truncated.
+	got, truncated = capItems(mk(5), 5)
+	if len(got) != 5 || truncated {
+		t.Errorf("at cap: len=%d truncated=%v, want 5,false", len(got), truncated)
+	}
+
+	// Over the cap: first `max` kept (order preserved), truncated.
+	got, truncated = capItems(mk(9), 5)
+	if len(got) != 5 || !truncated {
+		t.Fatalf("over cap: len=%d truncated=%v, want 5,true", len(got), truncated)
+	}
+	if got[0]["i"] != int64(0) || got[4]["i"] != int64(4) {
+		t.Errorf("over cap kept wrong items / order: %v", got)
+	}
+
+	// max <= 0 disables capping.
+	got, truncated = capItems(mk(7), 0)
+	if len(got) != 7 || truncated {
+		t.Errorf("max<=0: len=%d truncated=%v, want 7,false", len(got), truncated)
+	}
+}
