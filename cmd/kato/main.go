@@ -114,7 +114,7 @@ func run() error {
 		DebugLog:         func(msg string, kv ...any) { log.V(1).Info(msg, kv...) },
 	}
 	eng := &engine.Engine{
-		Deps:      methods.Deps{Kube: kubeClient, Metrics: metricsClient},
+		Deps:      methods.Deps{Kube: kubeClient, Metrics: metricsClient, Prober: methods.LocalProber{}},
 		Registry:  reg,
 		Summarize: sum.Summarize, StepTimeout: cfg.StepTimeout,
 	}

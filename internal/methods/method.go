@@ -64,6 +64,7 @@ type Outputs map[string]any
 type Deps struct {
 	Kube    kubernetes.Interface
 	Metrics metricsv.Interface
+	Prober  Prober
 }
 
 type Method interface {

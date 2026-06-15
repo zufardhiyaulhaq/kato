@@ -59,6 +59,8 @@ runtime.
 | [`check_cronjob`](#check_cronjob) | CronJob schedule, suspension, and recent-run times |
 | [`list_failing_pods`](#list_failing_pods) | Failing pods of a workload (Deployment/DaemonSet/StatefulSet), worst-first — produces list output `pods` |
 | [`list_pods`](#list_pods) | All pods of a workload (Deployment/DaemonSet/StatefulSet), not-ready first — produces list output `pods` |
+| [`probe_tcp`](#probe_tcp) | Active TCP connect check — does `target:port` accept a connection? |
+| [`probe_http`](#probe_http) | Active HTTP(S) GET with status and optional body assertions |
 
 ---
 
@@ -772,3 +774,65 @@ Reference the list from a `forEach` step: `forEach: $(steps.<step>.pods)`, then
 bind `$(item.namespace)` / `$(item.name)` in the step's `with`.
 
 Note: `maxListItems` caps the `pods` list output itself; the step's separate `maxItems` field caps how many of those items a subsequent `forEach` iterates.
+
+---
+
+### `probe_tcp`
+
+Active TCP connect check: opens a TCP connection to `target:port` and reports whether
+it was accepted within the timeout (a "telnet"-style port check, e.g. "is the database
+serving on 5432?"). A refused/timed-out connection is a finding (`success: false`), not
+an error, so a flow can gate later steps on `$(steps.<step>.success)`. Runs from kato's
+pod; reachability is governed by NetworkPolicy (no Kubernetes RBAC needed).
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `target` | yes | host, IP, or DNS name (e.g. `postgres.data.svc.cluster.local`, `10.0.0.5`) |
+| `port` | yes | TCP port (1–65535) |
+| `timeout` | no | connect timeout as a Go duration (default `5s`) |
+
+**Scalar outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `success` | bool | TCP connection established within the timeout |
+| `latencyMs` | int | connect time in ms; `-1` on failure |
+| `error` | string | failure reason (refused/timeout/DNS); `""` on success |
+
+---
+
+### `probe_http`
+
+Active HTTP(S) `GET` to `scheme://target:port/path`, asserting the response status code
+and (optionally) that the body contains a substring (e.g. "does the health endpoint
+return 200?"). A transport failure or non-matching status/body is a finding
+(`success: false`), not an error. The response body is never returned as an output —
+only `statusCode`/`statusMatched`/`bodyMatched` — so payloads (which may contain
+secrets) stay out of the Run record and the LLM evidence. Runs from kato's pod;
+reachability is governed by NetworkPolicy (no Kubernetes RBAC needed).
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `target` | yes | host, IP, or DNS name |
+| `port` | yes | port (1–65535) |
+| `scheme` | no | `http` or `https` (default `http`) |
+| `path` | no | request path (default `/`) |
+| `expectStatus` | no | expected HTTP status code, 100–599 (default `200`) |
+| `expectBodyContains` | no | substring the response body must contain (matched within the first 64 KiB of the response); empty = no body check |
+| `insecureSkipVerify` | no | `true` to accept self-signed certs (https only; default `false`) |
+| `timeout` | no | request timeout as a Go duration (default `5s`) |
+
+**Scalar outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `success` | bool | `statusMatched` and `bodyMatched` |
+| `statusCode` | int | HTTP status; `0` if no response (transport failure) |
+| `statusMatched` | bool | `statusCode == expectStatus` |
+| `bodyMatched` | bool | body contains `expectBodyContains` (`true` if unset) |
+| `latencyMs` | int | round-trip in ms; `-1` on failure |
+| `error` | string | failure reason; `""` on success |
