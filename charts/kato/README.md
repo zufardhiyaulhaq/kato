@@ -2,7 +2,7 @@
 
 Kubernetes troubleshooting via declarative UseCase flows with AI summaries
 
-![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.0](https://img.shields.io/badge/AppVersion-0.1.0-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/zufardhiyaulhaq/kato/main.yml?branch=main)](https://github.com/zufardhiyaulhaq/kato/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/zufardhiyaulhaq/kato)](https://github.com/zufardhiyaulhaq/kato/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/zufardhiyaulhaq/kato)](https://github.com/zufardhiyaulhaq/kato/pulls)
+![Version: 0.2.0](https://img.shields.io/badge/Version-0.2.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.2.0](https://img.shields.io/badge/AppVersion-0.2.0-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/zufardhiyaulhaq/kato/main.yml?branch=main)](https://github.com/zufardhiyaulhaq/kato/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/zufardhiyaulhaq/kato)](https://github.com/zufardhiyaulhaq/kato/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/zufardhiyaulhaq/kato)](https://github.com/zufardhiyaulhaq/kato/pulls)
 
 > Turn your team's runbooks into versioned CRDs. kato runs the exact checks **you**
 > chose, in the order you chose, and lets an LLM do only the last mile — writing up
@@ -167,7 +167,7 @@ helm install my-kato kato/kato --values values.yaml
 | config.stepTimeout | string | `"30s"` |  |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
 | image.repository | string | `"ghcr.io/zufardhiyaulhaq/kato"` |  |
-| image.tag | string | `"0.1.0"` |  |
+| image.tag | string | `"0.2.0"` |  |
 | modelConfig.apiKey | string | `""` |  |
 | modelConfig.baseURL | string | `"https://api.openai.com/v1"` |  |
 | modelConfig.default | bool | `true` |  |

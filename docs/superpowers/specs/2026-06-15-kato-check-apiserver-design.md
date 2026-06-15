@@ -134,6 +134,7 @@ A degraded or unreachable API server is a **finding, not a method failure**:
 
 ## How it calls the API server
 
+{% raw %}
 ```go
 ctx, cancel := context.WithTimeout(ctx, timeout)
 defer cancel()
@@ -163,6 +164,7 @@ return Outputs{
     "failedChecks": failed, // []map[string]any{{"name": "etcd"}, ...}
 }, nil
 ```
+{% endraw %}
 
 - `result.Raw()` returns the response body on both 200 and 500; the per-line `[-]`/`[+]`
   parse plus the status code carry all needed signal, so its returned error is ignored.
@@ -201,6 +203,7 @@ The fake clientset's discovery client cannot serve arbitrary `AbsPath` calls, so
 real `httptest` server and a real clientset pointed at it — exercising the actual HTTP path
 and body parsing, with no cluster:
 
+{% raw %}
 ```go
 srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
     // route on r.URL.Path ("/livez" | "/healthz"); write 200+passed or 500+failed body
@@ -208,6 +211,7 @@ srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.R
 client, _ := kubernetes.NewForConfig(&rest.Config{Host: srv.URL})
 out, err := m.Run(ctx, Deps{Kube: client}, params)
 ```
+{% endraw %}
 
 Cases:
 - **Healthy:** handler returns `200` + a verbose body of all `[+]` lines ending

@@ -53,6 +53,7 @@ the same as `probe_tcp`/`probe_http`. Nothing multi-cluster is built here.
 `internal/methods/prober.go` grows one method and two types. `LocalProber` (the only
 production implementation) and the test `fakeProber` both implement it.
 
+{% raw %}
 ```go
 type Prober interface {
     ProbeTCP(ctx context.Context, target string, port int, timeout time.Duration) TCPResult
@@ -76,9 +77,11 @@ type DNSResult struct {
     Err       string   // failure reason (NXDOMAIN/timeout/unreachable); "" on success
 }
 ```
+{% endraw %}
 
 ### `LocalProber.ProbeDNS`
 
+{% raw %}
 ```go
 func (LocalProber) ProbeDNS(ctx context.Context, req DNSProbeRequest) DNSResult {
     resolver := net.DefaultResolver
@@ -105,6 +108,7 @@ func (LocalProber) ProbeDNS(ctx context.Context, req DNSProbeRequest) DNSResult 
     return DNSResult{Resolved: true, Addresses: addrs, LatencyMS: time.Since(start).Milliseconds()}
 }
 ```
+{% endraw %}
 
 - `LookupHost` returns both A and AAAA addresses as strings — exactly "A/AAAA, resolves-or-not".
 - A name that resolves to zero records returns an error (NXDOMAIN / "no such host"), so the
@@ -145,6 +149,7 @@ There is no separate `resolved` output: given resolves-or-not, it would be ident
 
 **Run**
 
+{% raw %}
 ```go
 func (probeDNS) Run(ctx context.Context, deps Deps, params map[string]string) (Outputs, error) {
     if params["name"] == "" {
@@ -174,6 +179,7 @@ func (probeDNS) Run(ctx context.Context, deps Deps, params map[string]string) (O
     }, nil
 }
 ```
+{% endraw %}
 
 ---
 

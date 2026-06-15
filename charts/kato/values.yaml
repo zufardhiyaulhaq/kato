@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/zufardhiyaulhaq/kato
-  tag: "0.1.0"
+  tag: "0.2.0"
   pullPolicy: IfNotPresent
 
 # Keep this at 1. kato is a single-process operator: the UseCase/ModelConfig

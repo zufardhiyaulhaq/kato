@@ -37,6 +37,7 @@
 
 Create `internal/methods/check_apiserver_test.go`:
 
+{% raw %}
 ```go
 package methods
 
@@ -103,6 +104,7 @@ func TestParseFailedChecksAllHealthy(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -113,6 +115,7 @@ Expected: FAIL — `undefined: parseEndpoint`, `undefined: parseFailedChecks`.
 
 Create `internal/methods/check_apiserver.go`:
 
+{% raw %}
 ```go
 package methods
 
@@ -157,6 +160,7 @@ func parseFailedChecks(body []byte) []map[string]any {
 	return out
 }
 ```
+{% endraw %}
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -177,6 +181,7 @@ Expected: PASS (all three tests).
 
 Append to `internal/methods/check_apiserver_test.go`. Add the needed imports to the existing `import` block: `context`, `net/http`, `net/http/httptest`, `k8s.io/client-go/kubernetes`, `k8s.io/client-go/rest`.
 
+{% raw %}
 ```go
 // healthHandler serves /livez and /healthz with a chosen status code and body,
 // and records the last requested path so tests can assert routing.
@@ -304,6 +309,7 @@ func TestCheckAPIServerParamErrors(t *testing.T) {
 	}
 }
 ```
+{% endraw %}
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -314,6 +320,7 @@ Expected: FAIL — `check_apiserver not registered` (method type and `init` do n
 
 Add to `internal/methods/check_apiserver.go`. Extend the existing `import` block to include `context` (keep `fmt`, `strings`). Do **not** import `time`: `parseProbeTimeout` returns a `time.Duration` but it is bound with `:=` and never referenced by name here, so a `time` import would be unused and fail the build.
 
+{% raw %}
 ```go
 import (
 	"context"
@@ -321,9 +328,11 @@ import (
 	"strings"
 )
 ```
+{% endraw %}
 
 Then append the method below the helpers:
 
+{% raw %}
 ```go
 type checkAPIServer struct{}
 
@@ -407,6 +416,7 @@ func (checkAPIServer) Run(ctx context.Context, deps Deps, params map[string]stri
 
 func init() { builtinFns = append(builtinFns, func(r *Registry) { r.Register(checkAPIServer{}) }) }
 ```
+{% endraw %}
 
 - [ ] **Step 4: Run tests to verify they pass**
 
