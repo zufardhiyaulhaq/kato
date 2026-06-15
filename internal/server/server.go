@@ -65,7 +65,9 @@ func (s *Server) Handler() http.Handler {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	// Best-effort: the status line and headers are already written, so an encode
+	// error (e.g. client hung up) cannot change the response — nothing to do but ignore it.
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func writeErr(w http.ResponseWriter, status int, msg string) {

@@ -29,7 +29,7 @@ func TestUseCaseReadyCondition(t *testing.T) {
 	if err != nil {
 		t.Skipf("envtest unavailable (set KUBEBUILDER_ASSETS): %v", err)
 	}
-	defer env.Stop()
+	defer func() { _ = env.Stop() }()
 
 	c := newClient(t, cfg)
 	ucCache := NewUseCaseCache()

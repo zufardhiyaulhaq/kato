@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 type Prober interface {
 	ProbeTCP(ctx context.Context, target string, port int, timeout time.Duration) TCPResult
 	ProbeHTTP(ctx context.Context, req HTTPProbeRequest) HTTPResult
+	ProbeDNS(ctx context.Context, req DNSProbeRequest) DNSResult
 }
 
 // TCPResult is the outcome of a TCP connect probe.
@@ -48,6 +50,22 @@ type HTTPResult struct {
 	BodyMatched   bool
 	LatencyMS     int64 // round-trip in ms; -1 on failure
 	Err           string
+}
+
+// DNSProbeRequest is a fully-resolved DNS probe (params already parsed/defaulted).
+type DNSProbeRequest struct {
+	Name    string // hostname to resolve
+	Server  string // optional resolver IP; "" = pod's /etc/resolv.conf
+	Port    int    // resolver port (default 53; only used when Server is set)
+	Timeout time.Duration
+}
+
+// DNSResult is the outcome of a DNS resolution probe (A/AAAA, resolves-or-not).
+type DNSResult struct {
+	Resolved  bool     // got >= 1 address
+	Addresses []string // resolved A/AAAA IPs, sorted
+	LatencyMS int64    // query time in ms; -1 on failure
+	Err       string   // failure reason (NXDOMAIN/timeout/unreachable); "" on success
 }
 
 // LocalProber probes from the current process. Network reachability is governed by
@@ -98,4 +116,30 @@ func (LocalProber) ProbeHTTP(ctx context.Context, req HTTPProbeRequest) HTTPResu
 		BodyMatched:   bodyMatched,
 		LatencyMS:     time.Since(start).Milliseconds(),
 	}
+}
+
+func (LocalProber) ProbeDNS(ctx context.Context, req DNSProbeRequest) DNSResult {
+	resolver := net.DefaultResolver
+	if req.Server != "" {
+		d := net.Dialer{Timeout: req.Timeout}
+		server := net.JoinHostPort(req.Server, strconv.Itoa(req.Port))
+		// PreferGo so Go's own resolver (not cgo) honors Dial, forcing every query
+		// to the requested server over the requested network (udp, then tcp on
+		// truncation) and ignoring /etc/resolv.conf.
+		resolver = &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+				return d.DialContext(ctx, network, server)
+			},
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, req.Timeout)
+	defer cancel()
+	start := time.Now()
+	addrs, err := resolver.LookupHost(ctx, req.Name)
+	if err != nil {
+		return DNSResult{Resolved: false, LatencyMS: -1, Err: err.Error()}
+	}
+	sort.Strings(addrs)
+	return DNSResult{Resolved: true, Addresses: addrs, LatencyMS: time.Since(start).Milliseconds()}
 }

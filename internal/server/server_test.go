@@ -97,7 +97,9 @@ func TestRunEndpointSuccess(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
 	if resp["phase"] != "Succeeded" || resp["summary"] != "ok" {
 		t.Errorf("resp = %v", resp)
 	}

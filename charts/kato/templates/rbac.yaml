@@ -38,6 +38,11 @@ rules:
   - apiGroups: ["kato.zufardhiyaulhaq.com"]
     resources: [runs/status]
     verbs: [update, patch]
+  # check_apiserver reads the API server health endpoints. These are non-resource
+  # URLs; granting them explicitly avoids relying on the cluster-default
+  # system:public-info-viewer binding (which varies by distro/version).
+  - nonResourceURLs: ["/livez", "/healthz"]
+    verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

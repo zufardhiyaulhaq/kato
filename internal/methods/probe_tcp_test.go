@@ -11,9 +11,11 @@ import (
 type fakeProber struct {
 	tcp       TCPResult
 	http      HTTPResult
+	dns       DNSResult
 	gotTarget string
 	gotPort   int
 	gotHTTP   HTTPProbeRequest
+	gotDNS    DNSProbeRequest
 }
 
 func (f *fakeProber) ProbeTCP(_ context.Context, target string, port int, _ time.Duration) TCPResult {
@@ -24,6 +26,11 @@ func (f *fakeProber) ProbeTCP(_ context.Context, target string, port int, _ time
 func (f *fakeProber) ProbeHTTP(_ context.Context, req HTTPProbeRequest) HTTPResult {
 	f.gotHTTP = req
 	return f.http
+}
+
+func (f *fakeProber) ProbeDNS(_ context.Context, req DNSProbeRequest) DNSResult {
+	f.gotDNS = req
+	return f.dns
 }
 
 func TestProbeTCPSuccess(t *testing.T) {

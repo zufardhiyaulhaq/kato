@@ -57,10 +57,12 @@ runtime.
 | [`check_pvc`](#check_pvc) | PersistentVolumeClaim binding status (phase, capacity, bound PV) |
 | [`check_job`](#check_job) | Job completion/failure counts and conditions |
 | [`check_cronjob`](#check_cronjob) | CronJob schedule, suspension, and recent-run times |
+| [`check_apiserver`](#check_apiserver) | Health of the connected API server (`/livez` or `/healthz`) with failing-check names |
 | [`list_failing_pods`](#list_failing_pods) | Failing pods of a workload (Deployment/DaemonSet/StatefulSet), worst-first — produces list output `pods` |
 | [`list_pods`](#list_pods) | All pods of a workload (Deployment/DaemonSet/StatefulSet), not-ready first — produces list output `pods` |
 | [`probe_tcp`](#probe_tcp) | Active TCP connect check — does `target:port` accept a connection? |
 | [`probe_http`](#probe_http) | Active HTTP(S) GET with status and optional body assertions |
+| [`probe_dns`](#probe_dns) | Active DNS resolution check — does a name resolve to an address? |
 
 ---
 
@@ -690,6 +692,51 @@ CronJob schedule and recent run status. A missing CronJob is reported as `exists
 
 ---
 
+## Control plane
+
+### `check_apiserver`
+
+Health of the API server kato is connected to, read through kato's **authenticated**
+REST client (`/livez` or `/healthz` with `?verbose`). Reports a pass/fail signal plus the
+**names of the failing health checks** — distro-agnostic, with no hardcoded component
+list. An unhealthy (HTTP 500) or unreachable API server is a finding (`healthy: false`),
+not a method failure; only invalid params are errors. Use it to gate a UseCase on "is the
+control plane degraded?" and hand the failing-check names to the LLM as evidence.
+
+Unlike `probe_http`, this uses kato's ServiceAccount (no `target`/`port`/TLS to wire) and
+parses *which* checks failed. `/readyz` is intentionally not offered in v1.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `endpoint` | no | which health path: `livez` (default) \| `healthz` |
+| `timeout` | no | request timeout as a Go duration (default `5s`) |
+
+**Scalar outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `healthy` | bool | the endpoint reported healthy (HTTP 200) |
+| `statusCode` | int | HTTP status code; `0` if the API server was unreachable |
+| `failedCount` | int | number of failing health checks |
+| `error` | string | unreachable reason (refused/timeout/DNS); `""` otherwise |
+
+**List output `failedChecks`** (one entry per failing health-check name)
+
+| Item field | Type | Description |
+|---|---|---|
+| `name` | string | failing health check name, as named on that cluster (e.g. `etcd`, `poststarthook/…`) |
+
+Gate on the scalars — `when: $(steps.<step>.healthy) == false` or a `failedCount`
+threshold. The `failedChecks` list is recorded to the Run and sent to the LLM as part
+of the step's outputs (when the step leaves `summaryFilter` unset, which records all
+outputs), or fan out over the names with `forEach: $(steps.<step>.failedChecks)`, binding
+`$(item.name)` in the step's `with`. Note: `summaryFilter` allowlists scalar outputs
+only — a list output's name cannot be added to it.
+
+---
+
 ## Discovery
 
 ### `list_failing_pods`
@@ -836,3 +883,37 @@ reachability is governed by NetworkPolicy (no Kubernetes RBAC needed).
 | `bodyMatched` | bool | body contains `expectBodyContains` (`true` if unset) |
 | `latencyMs` | int | round-trip in ms; `-1` on failure |
 | `error` | string | failure reason; `""` on success |
+
+---
+
+### `probe_dns`
+
+Active DNS resolution: resolves `name` to its A/AAAA addresses and reports whether it
+resolved, the addresses, and the query latency (e.g. "does `kubernetes.default.svc.cluster.local`
+resolve?"). A failed lookup (NXDOMAIN, timeout, server unreachable) is a finding
+(`success: false`), not an error, so a flow can gate later steps on `$(steps.<step>.success)`.
+By default the query uses the pod's configured resolver (`/etc/resolv.conf`) — what real
+workloads experience; set `server` to send the query to a specific resolver (e.g. the
+node-local-dns link-local IP or the kube-dns clusterIP) to isolate which layer is broken.
+Runs from kato's pod; reachability is governed by NetworkPolicy (no Kubernetes RBAC needed).
+
+To resolve several names, fan out with `forEach`.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `name` | yes | hostname to resolve (e.g. `kubernetes.default.svc.cluster.local`) |
+| `server` | no | DNS server IP to query directly; empty = pod's configured resolver |
+| `port` | no | DNS server port (default `53`); only used when `server` is set |
+| `timeout` | no | query timeout as a Go duration (default `5s`) |
+
+**Scalar outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `success` | bool | resolution returned at least one address |
+| `addresses` | string | comma-separated resolved IPs (A/AAAA), sorted; `""` if none |
+| `recordCount` | int | number of addresses resolved |
+| `latencyMs` | int | query time in ms; `-1` on failure |
+| `error` | string | failure reason (NXDOMAIN/timeout/unreachable); `""` on success |
