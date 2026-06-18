@@ -34,6 +34,18 @@ func (checkPodStatus) OutputFields() []OutputField {
 	}
 }
 
+func (checkPodStatus) ListOutputs() []ListOutputField {
+	return []ListOutputField{{
+		Name:        "containers",
+		Description: "per-container status (forEach source for per-container checks)",
+		ItemFields: []OutputField{
+			{Name: "name", Type: FieldString, Description: "container name"},
+			{Name: "restartCount", Type: FieldInt, Description: "container restart count"},
+			{Name: "ready", Type: FieldBool, Description: "container Ready"},
+		},
+	}}
+}
+
 func (checkPodStatus) Run(ctx context.Context, deps Deps, params map[string]string) (Outputs, error) {
 	pod, err := deps.Kube.CoreV1().Pods(params["namespace"]).Get(ctx, params["name"], metav1.GetOptions{})
 	if err != nil {
@@ -52,7 +64,11 @@ func (checkPodStatus) Run(ctx context.Context, deps Deps, params map[string]stri
 			out["ready"] = true
 		}
 	}
+	containers := make([]map[string]any, 0, len(pod.Status.ContainerStatuses))
 	for _, cs := range pod.Status.ContainerStatuses {
+		containers = append(containers, map[string]any{
+			"name": cs.Name, "restartCount": int64(cs.RestartCount), "ready": cs.Ready,
+		})
 		if int64(cs.RestartCount) > out["restartCount"].(int64) {
 			out["restartCount"] = int64(cs.RestartCount)
 		}
@@ -64,6 +80,7 @@ func (checkPodStatus) Run(ctx context.Context, deps Deps, params map[string]stri
 			out["lastTerminationExitCode"] = int64(t.ExitCode)
 		}
 	}
+	out["containers"] = containers
 	return out, nil
 }
 

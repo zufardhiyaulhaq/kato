@@ -15,6 +15,7 @@ spec:
       with:
         namespace: $(inputs.namespace)
         name: $(inputs.pod)
+      summaryFilter: [phase, ready, restartCount, nodeName, waitingReason, waitingMessage, lastTerminationReason, lastTerminationExitCode, qosClass]
     - name: events
       method: check_events
       with:

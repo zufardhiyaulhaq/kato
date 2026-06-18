@@ -43,6 +43,17 @@ func (describePod) OutputFields() []OutputField {
 	}
 }
 
+func (describePod) ListOutputs() []ListOutputField {
+	return []ListOutputField{{
+		Name:        "containerList",
+		Description: "per-container name and image (forEach source; scalar 'containers' is the comma-joined form)",
+		ItemFields: []OutputField{
+			{Name: "name", Type: FieldString, Description: "container name"},
+			{Name: "image", Type: FieldString, Description: "container image"},
+		},
+	}}
+}
+
 func (describePod) Run(ctx context.Context, deps Deps, params map[string]string) (Outputs, error) {
 	pod, err := deps.Kube.CoreV1().Pods(params["namespace"]).Get(ctx, params["name"], metav1.GetOptions{})
 	if err != nil {
@@ -63,6 +74,7 @@ func (describePod) Run(ctx context.Context, deps Deps, params map[string]string)
 	return Outputs{
 		"containers":        containerNames(pod.Spec.Containers),
 		"images":            containerImages(pod.Spec.Containers),
+		"containerList":     containerItems(pod.Spec.Containers),
 		"resourceRequests":  renderResourceList(pod.Spec.Containers, false),
 		"resourceLimits":    renderResourceList(pod.Spec.Containers, true),
 		"restartPolicy":     string(pod.Spec.RestartPolicy),
@@ -97,6 +109,14 @@ func containerImages(cs []corev1.Container) string {
 		imgs[i] = c.Image
 	}
 	return strings.Join(imgs, ", ")
+}
+
+func containerItems(cs []corev1.Container) []map[string]any {
+	items := make([]map[string]any, 0, len(cs))
+	for _, c := range cs {
+		items = append(items, map[string]any{"name": c.Name, "image": c.Image})
+	}
+	return items
 }
 
 func volumeNames(vols []corev1.Volume) string {

@@ -89,6 +89,35 @@ func TestCheckPodStatusHealthyDefaults(t *testing.T) {
 	}
 }
 
+func TestCheckPodStatusContainersList(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-1", Namespace: "payments"},
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", Ready: false, RestartCount: 17},
+				{Name: "istio-proxy", Ready: true, RestartCount: 0},
+			},
+		},
+	}
+	client := fake.NewSimpleClientset(pod)
+	m, _ := Builtin().Get("check_pod_status")
+	out, err := m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "payments", "name": "app-1"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	cs, ok := out["containers"].([]map[string]any)
+	if !ok || len(cs) != 2 {
+		t.Fatalf("containers = %#v", out["containers"])
+	}
+	if cs[0]["name"] != "app" || cs[0]["restartCount"] != int64(17) || cs[0]["ready"] != false {
+		t.Errorf("container[0] = %#v", cs[0])
+	}
+	if cs[1]["name"] != "istio-proxy" || cs[1]["ready"] != true {
+		t.Errorf("container[1] = %#v", cs[1])
+	}
+}
+
 func TestCheckPodStatusNotFound(t *testing.T) {
 	client := fake.NewSimpleClientset()
 	m, _ := Builtin().Get("check_pod_status")

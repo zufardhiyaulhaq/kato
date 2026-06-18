@@ -2,6 +2,8 @@ package methods
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -25,6 +27,18 @@ func TestCheckPodLogs(t *testing.T) {
 	}
 	if out["logs"] != "fake logs" {
 		t.Errorf("logs = %q", out["logs"])
+	}
+}
+
+func TestAggregateContainerLogs(t *testing.T) {
+	got := aggregateContainerLogs([]containerLog{
+		{name: "app", text: "line1\nline2"},
+		{name: "istio-proxy", err: fmt.Errorf(`previous terminated container "istio-proxy" not found`)},
+	})
+	want := "=== container: app ===\nline1\nline2\n\n" +
+		"=== container: istio-proxy ===\n(no logs: previous terminated container \"istio-proxy\" not found)"
+	if got != want {
+		t.Fatalf("aggregate =\n%q\nwant\n%q", got, want)
 	}
 }
 
@@ -57,6 +71,58 @@ func TestCheckPodLogsBadParams(t *testing.T) {
 	if _, err := m.Run(context.Background(), Deps{Kube: client},
 		map[string]string{"namespace": "x", "name": "y", "previous": "yes"}); err == nil {
 		t.Fatal("expected error for non-bool previous")
+	}
+}
+
+func TestCheckPodLogsAllContainers(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-1", Namespace: "payments"},
+		Spec: corev1.PodSpec{
+			Containers:     []corev1.Container{{Name: "app"}, {Name: "istio-proxy"}},
+			InitContainers: []corev1.Container{{Name: "init-db"}},
+		},
+	}
+	client := fake.NewSimpleClientset(pod)
+	m, _ := Builtin().Get("check_pod_logs")
+	out, err := m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "payments", "name": "app-1", "previous": "true"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	logs := out["logs"].(string)
+	for _, c := range []string{"app", "istio-proxy", "init-db"} {
+		if !strings.Contains(logs, "=== container: "+c+" ===") {
+			t.Errorf("missing header for %q in:\n%s", c, logs)
+		}
+	}
+	if strings.Count(logs, "fake logs") != 3 {
+		t.Errorf("want 3 container log bodies, got:\n%s", logs)
+	}
+}
+
+func TestCheckPodLogsSingleContainerNoHeader(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-1", Namespace: "payments"},
+		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app"}}},
+	}
+	client := fake.NewSimpleClientset(pod)
+	m, _ := Builtin().Get("check_pod_logs")
+	out, err := m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "payments", "name": "app-1"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out["logs"] != "fake logs" {
+		t.Errorf("single-container logs = %q, want plain \"fake logs\"", out["logs"])
+	}
+}
+
+func TestCheckPodLogsPodNotFound(t *testing.T) {
+	client := fake.NewSimpleClientset() // no pods registered
+	m, _ := Builtin().Get("check_pod_logs")
+	if _, err := m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "payments", "name": "missing"}); err == nil {
+		t.Fatal("expected error when pod does not exist")
 	}
 }
 

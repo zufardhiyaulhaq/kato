@@ -145,3 +145,30 @@ func TestDescribePodTroubleshootingFields(t *testing.T) {
 		}
 	}
 }
+
+func TestDescribePodContainerList(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-1", Namespace: "payments"},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{
+			{Name: "app", Image: "app:v1"},
+			{Name: "sidecar", Image: "proxy:v2"},
+		}},
+	}
+	client := fake.NewSimpleClientset(pod)
+	m, _ := Builtin().Get("describe_pod")
+	out, err := m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "payments", "name": "app-1"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	cl, ok := out["containerList"].([]map[string]any)
+	if !ok || len(cl) != 2 {
+		t.Fatalf("containerList = %#v", out["containerList"])
+	}
+	if cl[0]["name"] != "app" || cl[0]["image"] != "app:v1" {
+		t.Errorf("containerList[0] = %#v", cl[0])
+	}
+	if cl[1]["name"] != "sidecar" || cl[1]["image"] != "proxy:v2" {
+		t.Errorf("containerList[1] = %#v", cl[1])
+	}
+}
