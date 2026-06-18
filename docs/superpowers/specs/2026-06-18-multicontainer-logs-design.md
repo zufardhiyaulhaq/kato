@@ -1,5 +1,5 @@
 # Multi-Container Pod Logs Design
-
+{% raw %}
 **Date:** 2026-06-18
 **Status:** Approved
 
@@ -180,3 +180,4 @@ unchanged.
 ## Constraint
 
 Do not commit. All changes stay in the working tree (standing user instruction).
+{% endraw %}

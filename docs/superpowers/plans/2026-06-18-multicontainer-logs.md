@@ -1,5 +1,6 @@
 # Multi-Container Pod Logs Implementation Plan
 
+{% raw %}
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 > **DO NOT COMMIT.** Standing user instruction: leave all changes in the working tree. The "Verify" step that ends each task replaces the usual commit step — never run `git add`/`git commit`.
@@ -483,3 +484,4 @@ The reported failure was the `pod-crashloop` UseCase's `previous-logs` step on a
 - No engine changes. No new methods. No UseCase YAML changes.
 - List outputs (Tasks 2–3) cover each method's existing container scope (regular containers; `check_pod_status` from `Status.ContainerStatuses`, `describe_pod` from `Spec.Containers`). The Task 1 auto-loop additionally includes init containers, since init-container crash loops are exactly the failure being diagnosed.
 - Per the standing instruction, nothing is committed — all changes stay in the working tree.
+{% endraw %}
