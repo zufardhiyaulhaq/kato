@@ -2,7 +2,7 @@
 
 Kubernetes troubleshooting via declarative UseCase flows with AI summaries
 
-![Version: 0.3.0](https://img.shields.io/badge/Version-0.3.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.3.0](https://img.shields.io/badge/AppVersion-0.3.0-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/zufardhiyaulhaq/kato/main.yml?branch=main)](https://github.com/zufardhiyaulhaq/kato/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/zufardhiyaulhaq/kato)](https://github.com/zufardhiyaulhaq/kato/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/zufardhiyaulhaq/kato)](https://github.com/zufardhiyaulhaq/kato/pulls)
+![Version: 0.4.0](https://img.shields.io/badge/Version-0.4.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.4.0](https://img.shields.io/badge/AppVersion-0.4.0-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/zufardhiyaulhaq/kato/main.yml?branch=main)](https://github.com/zufardhiyaulhaq/kato/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/zufardhiyaulhaq/kato)](https://github.com/zufardhiyaulhaq/kato/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/zufardhiyaulhaq/kato)](https://github.com/zufardhiyaulhaq/kato/pulls)
 
 > Turn your team's runbooks into versioned CRDs. kato runs the exact checks **you**
 > chose, in the order you chose, and lets an LLM do only the last mile — writing up
@@ -101,23 +101,26 @@ plain-language root cause and fix. Same steps, every time.
 
 ## Built-in methods
 
-kato ships **25 read-only checks** you compose into flows — pods, workloads,
-storage, batch, nodes, networking, and config:
+kato ships **31 read-only checks** you compose into flows — pods, workloads, nodes,
+networking, storage, batch, config, the control plane, plus listing/fan-out and
+active network probes:
 
 | Area | Methods |
 |---|---|
 | Pods | `check_pod_status`, `check_pod_logs`, `describe_pod`, `check_pod_resources`, `check_pod_usage` |
 | Workloads | `check_deployment_status`, `describe_deployment`, `check_replicaset`, `check_daemonset_status`, `describe_daemonset`, `check_statefulset_status`, `describe_statefulset`, `check_hpa` |
-| Storage | `check_pvc` |
-| Batch | `check_job`, `check_cronjob` |
-| Listing / fan-out | `list_pods`, `list_failing_pods` (drive `forEach` across a workload's pods) |
 | Nodes | `check_node_status`, `describe_node` |
 | Networking | `check_service_endpoints`, `describe_service`, `check_ingress` |
+| Storage | `check_pvc` |
+| Batch | `check_job`, `check_cronjob` |
 | Config & events | `check_configmap`, `check_events` |
+| Control plane | `check_apiserver` |
+| Listing / fan-out | `list_pods`, `list_failing_pods`, `list_nodes`, `list_node_pods` (drive `forEach` across a workload's or node's pods, or the node fleet) |
+| Active probes | `probe_tcp`, `probe_http`, `probe_dns` (run from kato's pod; reachability governed by NetworkPolicy) |
 
 Full reference and every output field: [`docs/METHOD.md`](https://github.com/zufardhiyaulhaq/kato/blob/main/docs/METHOD.md).
-Ready-made UseCases (CrashLoop, pending pods, stuck deployments, unreachable services,
-cluster DNS) live under [`examples/`](https://github.com/zufardhiyaulhaq/kato/tree/main/examples).
+Ready-made UseCases (general pod & node troubleshooting, cluster DNS, the Terway CNI, the istio-ingressgateway, and control-plane health)
+live under [`examples/`](https://github.com/zufardhiyaulhaq/kato/tree/main/examples).
 
 ## API
 
@@ -136,10 +139,10 @@ helm install kato charts/kato -n kato --create-namespace \
   --set modelConfig.enabled=true \
   --set modelConfig.apiKey=$OPENAI_API_KEY
 
-kubectl apply -f examples/usecases/pod-crashloop.yaml
+kubectl apply -f examples/usecases/pod-troubleshooting.yaml
 
 kubectl -n kato port-forward svc/kato 8080:8080 &
-curl -s -X POST localhost:8080/api/v1/usecases/pod-crashloop/run \
+curl -s -X POST localhost:8080/api/v1/usecases/pod-troubleshooting/run \
   -d '{"inputs":{"namespace":"payments","pod":"payment-api-xyz"}}' | jq
 ```
 
@@ -167,7 +170,7 @@ helm install my-kato kato/kato --values values.yaml
 | config.stepTimeout | string | `"30s"` |  |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
 | image.repository | string | `"ghcr.io/zufardhiyaulhaq/kato"` |  |
-| image.tag | string | `"0.3.0"` |  |
+| image.tag | string | `"0.4.0"` |  |
 | modelConfig.apiKey | string | `""` |  |
 | modelConfig.baseURL | string | `"https://api.openai.com/v1"` |  |
 | modelConfig.default | bool | `true` |  |

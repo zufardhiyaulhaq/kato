@@ -4,22 +4,22 @@
 # kato.zufardhiyaulhaq.com/managed-by: api label the REST API sets) exactly once,
 # then writes the result to this same object's status:
 #
-#   kubectl apply -f examples/runs/pod-crashloop-run.yaml
-#   kubectl get run -n default pod-crashloop-debug -o yaml   # per-step outcomes + summary
+#   kubectl apply -f examples/runs/pod-troubleshooting-run.yaml
+#   kubectl get run -n default pod-troubleshooting-debug -o yaml   # per-step outcomes + summary
 #
-# Requires the referenced UseCase (pod-crashloop) to be applied and Ready first.
+# Requires the referenced UseCase (pod-troubleshooting) to be applied and Ready first.
 # A Run is execute-once and immutable: re-applying this same name is a no-op, so to
-# re-run, `kubectl delete run pod-crashloop-debug` first (or use a new name, or
+# re-run, `kubectl delete run pod-troubleshooting-debug` first (or use a new name, or
 # switch to generateName + `kubectl create` for a fresh run each time). If
 # spec.useCase is missing/not Ready or inputs are invalid, the run ends Failed with
 # the reason in status.note.
 apiVersion: kato.zufardhiyaulhaq.com/v1alpha1
 kind: Run
 metadata:
-  name: pod-crashloop-debug
+  name: pod-troubleshooting-debug
   namespace: default
 spec:
-  useCase: pod-crashloop
+  useCase: pod-troubleshooting
   inputs:
     namespace: default
     pod: some-pod

@@ -1,3 +1,4 @@
+
 # Check whether the Kubernetes control plane is healthy, for a MANAGED / cloud
 # cluster (EKS/GKE/AKS) where the control plane is hidden: the API server is the
 # only reachable component, and etcd health surfaces through its health checks.
@@ -63,7 +64,7 @@ spec:
     # majority. Gated so it runs only when there is a genuine problem.
     - name: node-describe
       forEach: $(steps.nodes-fleet.nodes)
-      maxItems: 5
+      maxItems: 2
       when: $(steps.nodes-fleet.anyUnhealthy)
       method: describe_node
       with:
@@ -74,7 +75,7 @@ spec:
     # kubelet/pressure warnings (NodeNotReady, eviction, registration problems).
     - name: node-events
       forEach: $(steps.nodes-fleet.nodes)
-      maxItems: 5
+      maxItems: 2
       when: $(steps.nodes-fleet.anyUnhealthy)
       method: check_events
       with:

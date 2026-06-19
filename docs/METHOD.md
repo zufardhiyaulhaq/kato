@@ -61,6 +61,7 @@ runtime.
 | [`list_failing_pods`](#list_failing_pods) | Failing pods of a workload (Deployment/DaemonSet/StatefulSet), worst-first — produces list output `pods` |
 | [`list_pods`](#list_pods) | All pods of a workload (Deployment/DaemonSet/StatefulSet), not-ready first — produces list output `pods` |
 | [`list_nodes`](#list_nodes) | Fleet node health bucketed by status (counts) + a worst-first list of only the not-fully-healthy nodes — produces list output `nodes` |
+| [`list_node_pods`](#list_node_pods) | Pods scheduled on a node, optionally filtered by a name regex (e.g. `coredns\|terway`), worst-first — produces list output `pods` |
 | [`probe_tcp`](#probe_tcp) | Active TCP connect check — does `target:port` accept a connection? |
 | [`probe_http`](#probe_http) | Active HTTP(S) GET with status and optional body assertions |
 | [`probe_dns`](#probe_dns) | Active DNS resolution check — does a name resolve to an address? |
@@ -902,6 +903,53 @@ MemoryPressure` regardless of `maxListItems`.
 
 Note: `maxListItems` caps the `nodes` list output itself; the step's separate `maxItems`
 field caps how many of those items a subsequent `forEach` iterates.
+
+---
+
+### `list_node_pods`
+
+Pods scheduled on a given node (`spec.nodeName`), optionally filtered by a **name
+regex** and/or a namespace, as a worst-first **list output** (`pods`). Built for node
+troubleshooting: list the core-component pods on a node (e.g. CoreDNS, terway,
+node-local-dns) and fan out per-pod checks (`check_pod_status`, `check_pod_logs`,
+`check_pod_resources`) over them. Pods are field-selected by node server-side, so it
+scales on large clusters.
+
+The `namePattern` is an RE2 regex matched as a **partial** match against the pod name,
+so `coredns` matches `coredns-7d8f-x` and `coredns|terway` matches either family;
+anchor with `^…$` for an exact match. An invalid pattern is a param error.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `node` | yes | Node name; lists pods with `spec.nodeName` == this |
+| `namePattern` | no | RE2 regex matched (partial) against pod name, e.g. `coredns\|terway`; empty = all pods on the node |
+| `namespace` | no | restrict to this namespace; empty = all namespaces |
+| `maxListItems` | no | cap the `pods` list at this many items, worst-first (default `"50"`; `"0"` = unlimited) |
+
+**Scalar outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `count` | int | pods matched (node + namespace + namePattern) |
+| `notReadyCount` | int | matched pods whose Ready condition is not True |
+| `listTruncated` | bool | `true` if more pods matched than the `pods` list carries |
+
+**List output `pods`** (items sorted not-ready first, then by `restartCount`, then name)
+
+| Item field | Type | Description |
+|---|---|---|
+| `namespace` | string | pod namespace |
+| `name` | string | pod name |
+| `ready` | bool | Ready condition is True |
+| `restartCount` | int | max restartCount across the pod's containers |
+| `phase` | string | pod phase (`Pending\|Running\|Succeeded\|Failed\|Unknown`) |
+| `reason` | string | dominant waiting/termination reason (e.g. `CrashLoopBackOff`, `OOMKilled`), `""` if none |
+
+Reference the list from a `forEach` step: `forEach: $(steps.<step>.pods)`, then bind
+`$(item.namespace)` / `$(item.name)` in the step's `with`. The scalar `count` reflects
+the full match even when the list is capped by `maxListItems`.
 
 ---
 
