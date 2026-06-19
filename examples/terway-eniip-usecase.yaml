@@ -62,6 +62,23 @@ spec:
         namespace: kube-system
         name: terway-eniip
 
+    # Active egress probe (run from kato's pod): the CNI's whole job is pod
+    # networking, so prove a pod can actually reach the internet. "curl
+    # https://google.com" — an HTTPS GET that follows the 301 to www.google.com and
+    # expects 200. A failure (success:false / statusCode:0) means egress is broken
+    # (ENI/route not programmed, NAT/SNAT gap, or DNS) even if the DaemonSet pods look
+    # Ready. Reachability is governed by NetworkPolicy (no RBAC needed).
+    - name: egress-google
+      method: probe_http
+      with:
+        target: google.com
+        port: "443"
+        scheme: https
+        path: /
+        expectStatus: "200"
+        timeout: 5s
+      summaryFilter: [success, statusCode, statusMatched, latencyMs, error]
+
     - name: failing
       method: list_failing_pods
       with:
@@ -159,5 +176,10 @@ spec:
       missing/malformed eni-config, no ready endpoints, and scheduling gaps (missing
       tolerations / restrictive nodeSelector leaving pods absent or NotReady on some
       nodes).
+      Treat the active egress probe as ground truth for whether the CNI delivers
+      working pod networking: a failed HTTPS GET to google.com (egress-google
+      success=false / statusCode=0) means external egress is broken — ENI/route not
+      programmed, NAT/SNAT gap, or DNS — even if the DaemonSet pods report Ready;
+      call this out as a primary symptom and reconcile it against the component findings.
       Also flag improper pod resources: no limits set, usage near the memory limit
       (OOM risk), or limits far from actual usage; suggest a right-sized request/limit.

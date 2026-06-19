@@ -34,9 +34,9 @@ runtime.
 
 | Method | Purpose |
 |---|---|
-| [`check_pod_status`](#check_pod_status) | Pod phase, readiness, restarts, last termination |
+| [`check_pod_status`](#check_pod_status) | Pod phase, readiness, restarts, last termination — also produces list output `containers` |
 | [`check_pod_logs`](#check_pod_logs) | Container logs (optionally previous instance) |
-| [`describe_pod`](#describe_pod) | Sanitized pod manifest + structured fields |
+| [`describe_pod`](#describe_pod) | Sanitized pod manifest + structured fields — also produces list output `containerList` |
 | [`check_pod_resources`](#check_pod_resources) | Configured CPU/memory requests and limits (from spec) |
 | [`check_pod_usage`](#check_pod_usage) | Live CPU/memory usage (from metrics-server) |
 | [`check_node_status`](#check_node_status) | Node readiness and pressure conditions |
@@ -60,6 +60,7 @@ runtime.
 | [`check_apiserver`](#check_apiserver) | Health of the connected API server (`/livez` or `/healthz`) with failing-check names |
 | [`list_failing_pods`](#list_failing_pods) | Failing pods of a workload (Deployment/DaemonSet/StatefulSet), worst-first — produces list output `pods` |
 | [`list_pods`](#list_pods) | All pods of a workload (Deployment/DaemonSet/StatefulSet), not-ready first — produces list output `pods` |
+| [`list_nodes`](#list_nodes) | Fleet node health bucketed by status (counts) + a worst-first list of only the not-fully-healthy nodes — produces list output `nodes` |
 | [`probe_tcp`](#probe_tcp) | Active TCP connect check — does `target:port` accept a connection? |
 | [`probe_http`](#probe_http) | Active HTTP(S) GET with status and optional body assertions |
 | [`probe_dns`](#probe_dns) | Active DNS resolution check — does a name resolve to an address? |
@@ -93,11 +94,26 @@ Pod phase, readiness, restarts, last termination.
 | `lastTerminationExitCode` | int | `-1` if no prior termination |
 | `qosClass` | string | `Guaranteed\|Burstable\|BestEffort` |
 
+**List output `containers`** (one entry per container; `forEach` source for per-container checks)
+
+| Item field | Type | Description |
+|---|---|---|
+| `name` | string | container name |
+| `restartCount` | int | container restart count |
+| `ready` | bool | container Ready |
+
+Fan out per-container checks with `forEach: $(steps.<step>.containers)`, binding
+`$(item.name)` in the step's `with`.
+
 ---
 
 ### `check_pod_logs`
 
-Container logs (optionally previous instance).
+Container logs (optionally previous instance). When `container` is omitted on a
+multi-container pod, every container (regular + init) is fetched and rendered as
+labeled `=== container: <name> ===` blocks; a per-container fetch failure (e.g. a
+sidecar with no previous instance) becomes an inline `(no logs: …)` note rather
+than failing the step. A single-container pod produces unlabeled logs as before.
 
 **Inputs**
 
@@ -105,7 +121,7 @@ Container logs (optionally previous instance).
 |---|---|---|
 | `namespace` | yes | Pod namespace |
 | `name` | yes | Pod name |
-| `container` | no | container name; empty = first container |
+| `container` | no | container name; empty = all containers (regular + init) |
 | `previous` | no | `"true"` to fetch the previous instance's logs |
 | `tailLines` | no | max lines from the end (integer); **defaults to 10** |
 | `maxLineLength` | no | max characters per line; longer lines are trimmed with a `…[+N chars]` marker (default `1000`; `0` = unlimited) |
@@ -149,6 +165,16 @@ Sanitized pod manifest (spec+status), with structured fields broken out.
 | `tolerations` | string | pod tolerations, `""` if none |
 | `priorityClassName` | string | priority class, `""` if none |
 | `hostNetwork` | bool | pod uses host network |
+
+**List output `containerList`** (one entry per container; `forEach` source — the scalar `containers` is the comma-joined form)
+
+| Item field | Type | Description |
+|---|---|---|
+| `name` | string | container name |
+| `image` | string | container image |
+
+Fan out per-container checks with `forEach: $(steps.<step>.containerList)`, binding
+`$(item.name)` / `$(item.image)` in the step's `with`.
 
 ---
 
@@ -821,6 +847,61 @@ Reference the list from a `forEach` step: `forEach: $(steps.<step>.pods)`, then
 bind `$(item.namespace)` / `$(item.name)` in the step's `with`.
 
 Note: `maxListItems` caps the `pods` list output itself; the step's separate `maxItems` field caps how many of those items a subsequent `forEach` iterates.
+
+---
+
+### `list_nodes`
+
+Fleet-wide node health for large clusters, **bucketed by status**. Scans all nodes
+(optionally scoped by a label selector) and returns per-status **counts** as scalars
+plus a **list output** (`nodes`) of only the *not-fully-healthy* nodes, worst-first.
+Healthy nodes are counted but never listed, so a 400-node cluster collapses to a few
+rows + counts rather than 400 manifests. Pair with `describe_node` via a `forEach` to
+drill into only the surfaced problem nodes.
+
+A node is "not fully healthy" (and therefore listed) when it is NotReady, under any
+pressure (memory/disk/PID), or cordoned (`spec.unschedulable`). Set `includeHealthy`
+to also list the rest.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `labelSelector` | no | k8s label selector to scope the scan (e.g. a nodepool/role label); empty = all nodes |
+| `includeHealthy` | no | `"true"` to also list Ready/schedulable/no-pressure nodes (default `"false"` = problem nodes only) |
+| `maxListItems` | no | cap the `nodes` list at this many items, worst-first (default `"50"`; `"0"` = unlimited) |
+
+**Scalar outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `total` | int | nodes matched by the selector |
+| `ready` | int | nodes with Ready=True |
+| `notReady` | int | nodes with Ready≠True |
+| `memoryPressure` | int | nodes with MemoryPressure=True |
+| `diskPressure` | int | nodes with DiskPressure=True |
+| `pidPressure` | int | nodes with PIDPressure=True |
+| `unschedulable` | int | cordoned nodes (`spec.unschedulable`) |
+| `anyUnhealthy` | bool | `notReady > 0` or any pressure count > 0 |
+| `listTruncated` | bool | `true` if more problem nodes matched than the `nodes` list carries |
+
+**List output `nodes`** (items sorted worst-first: NotReady → pressured → cordoned-only → name)
+
+| Item field | Type | Description |
+|---|---|---|
+| `name` | string | node name |
+| `ready` | bool | Ready condition is True |
+| `status` | string | compact status label, e.g. `NotReady`, `Ready,MemoryPressure`, `Ready,SchedulingDisabled` |
+| `reason` | string | Ready reason when NotReady, else a pressure summary; `""` if none |
+| `unschedulable` | bool | cordoned |
+
+Reference the list from a `forEach` step: `forEach: $(steps.<step>.nodes)`, then bind
+`$(item.name)` in the step's `with`. The scalar counts always reflect the full matched
+fleet even when the list is capped, so a summary sees `397 ready / 2 NotReady / 1
+MemoryPressure` regardless of `maxListItems`.
+
+Note: `maxListItems` caps the `nodes` list output itself; the step's separate `maxItems`
+field caps how many of those items a subsequent `forEach` iterates.
 
 ---
 

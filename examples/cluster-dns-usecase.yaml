@@ -113,6 +113,33 @@ spec:
         name: kube-dns
       summaryFilter: [clusterIP, ports, selector]
 
+    # --- Active DNS-path probes (run from kato's pod, end-to-end) ---
+    # The checks above inspect DNS *components*; these two exercise the live path a
+    # real workload takes. Reachability is governed by NetworkPolicy (no RBAC).
+
+    # "telnet 53": open a TCP connection to the kube-dns Service on 53. A refused/
+    # timed-out connect (success:false) means the Service has no endpoints, the
+    # NetworkPolicy blocks DNS, or CoreDNS isn't serving TCP — independent of whether
+    # any single name resolves.
+    - name: kube-dns-tcp-53
+      method: probe_tcp
+      with:
+        target: kube-dns.kube-system.svc.cluster.local
+        port: "53"
+        timeout: 5s
+      summaryFilter: [success, latencyMs, error]
+
+    # "nslookup google.com": resolve an external name through the pod's configured
+    # resolver (/etc/resolv.conf) — the full path node-local-dns -> kube-dns ->
+    # upstream. A failure (NXDOMAIN/timeout/unreachable -> success:false) points at a
+    # broken forward path even when the in-cluster components look healthy.
+    - name: resolve-google
+      method: probe_dns
+      with:
+        name: google.com
+        timeout: 5s
+      summaryFilter: [success, addresses, recordCount, latencyMs, error]
+
     # --- CoreDNS failing-pod drill-down ---
     - name: coredns-failing
       method: list_failing_pods
@@ -258,6 +285,12 @@ spec:
       (tolerations/nodeSelector gaps); the kube-dns Service with no endpoints, wrong
       clusterIP (must equal kubelet --cluster-dns), missing 53 UDP/TCP, or a
       mismatched selector; a missing/malformed Corefile.
+      Use the active probes as ground truth for the live path: a failed TCP connect
+      to kube-dns:53 (kube-dns-tcp-53 success=false) means nothing can reach DNS over
+      TCP (no endpoints, NetworkPolicy block, or CoreDNS not serving TCP); a failed
+      external lookup (resolve-google success=false) means the forward path to
+      upstream is broken even if the in-cluster components look healthy. If the probes
+      succeed but components look degraded, prefer the probe evidence.
       Also flag improper pod resources: no limits set, usage near the memory limit
       (OOM risk), or limits far from actual usage; suggest a right-sized
       request/limit.
