@@ -3,6 +3,7 @@ package methods
 import (
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -11,6 +12,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/icmp"
+	"golang.org/x/net/ipv4"
 )
 
 // Prober performs active network probes. LocalProber is the in-process default
@@ -21,6 +25,7 @@ type Prober interface {
 	ProbeTCP(ctx context.Context, target string, port int, timeout time.Duration) TCPResult
 	ProbeHTTP(ctx context.Context, req HTTPProbeRequest) HTTPResult
 	ProbeDNS(ctx context.Context, req DNSProbeRequest) DNSResult
+	ProbeTraceroute(ctx context.Context, req TracerouteRequest) TracerouteResult
 }
 
 // TCPResult is the outcome of a TCP connect probe.
@@ -66,6 +71,37 @@ type DNSResult struct {
 	Addresses []string // resolved A/AAAA IPs, sorted
 	LatencyMS int64    // query time in ms; -1 on failure
 	Err       string   // failure reason (NXDOMAIN/timeout/unreachable); "" on success
+}
+
+// TracerouteRequest is a fully-resolved traceroute (params already parsed/defaulted).
+type TracerouteRequest struct {
+	Target       string        // host, IP, or DNS name
+	MaxHops      int           // maximum TTL to probe (1-255)
+	Timeout      time.Duration // per-hop reply wait
+	ProbesPerHop int           // probes sent per TTL (1-10)
+	ResolveNames bool          // reverse-DNS each responding hop
+}
+
+// TracerouteResult is the outcome of a traceroute. Reached/HopCount are the headline
+// signals; Hops is the per-TTL path. Err is set only for setup failures (DNS / socket),
+// never for "destination not reached" (that is Reached=false with Err="").
+type TracerouteResult struct {
+	Reached       bool
+	HopCount      int    // hops to destination when reached; -1 otherwise
+	DestinationIP string // resolved IPv4; "" on DNS failure
+	LatencyMS     int64  // RTT to destination on the final hop; -1 if not reached
+	Hops          []HopResult
+	Err           string
+}
+
+// HopResult is one probed TTL.
+type HopResult struct {
+	Hop       int    // TTL (1-based)
+	Address   string // responding IP; "" for a silent hop
+	Name      string // reverse-DNS hostname; "" if unresolved or resolveNames off
+	RTTMS     int64  // RTT in ms; -1 if no reply
+	Responded bool   // a reply came back at this TTL
+	Reached   bool   // this hop is the destination
 }
 
 // LocalProber probes from the current process. Network reachability is governed by
@@ -142,4 +178,158 @@ func (LocalProber) ProbeDNS(ctx context.Context, req DNSProbeRequest) DNSResult 
 	}
 	sort.Strings(addrs)
 	return DNSResult{Resolved: true, Addresses: addrs, LatencyMS: time.Since(start).Milliseconds()}
+}
+
+func (LocalProber) ProbeTraceroute(ctx context.Context, req TracerouteRequest) TracerouteResult {
+	res := TracerouteResult{HopCount: -1, LatencyMS: -1}
+
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", req.Target)
+	if err != nil {
+		res.Err = fmt.Sprintf("resolve %s: %v", req.Target, err)
+		return res
+	}
+	if len(ips) == 0 {
+		res.Err = fmt.Sprintf("resolve %s: no IPv4 address", req.Target)
+		return res
+	}
+	res.DestinationIP = ips[0].String()
+	dst := &net.UDPAddr{IP: ips[0]}
+
+	// Unprivileged ICMP datagram socket: needs no CAP_NET_RAW, only that the node
+	// sysctl net.ipv4.ping_group_range covers this process's GID.
+	conn, err := icmp.ListenPacket("udp4", "0.0.0.0")
+	if err != nil {
+		res.Err = fmt.Sprintf("open ICMP socket: %v (the node sysctl net.ipv4.ping_group_range must include kato's pod GID)", err)
+		return res
+	}
+	defer conn.Close()
+	pc := conn.IPv4PacketConn()
+
+	for ttl := 1; ttl <= req.MaxHops; ttl++ {
+		if ctx.Err() != nil {
+			break // engine step timeout / cancellation
+		}
+		if err := pc.SetTTL(ttl); err != nil {
+			res.Err = fmt.Sprintf("set TTL: %v", err)
+			return res
+		}
+		hop := HopResult{Hop: ttl, RTTMS: -1}
+		for probe := 0; probe < req.ProbesPerHop; probe++ {
+			if ctx.Err() != nil {
+				break
+			}
+			sentSeq := ttl*100 + probe
+			wm := icmp.Message{
+				Type: ipv4.ICMPTypeEcho, Code: 0,
+				Body: &icmp.Echo{ID: 0xCAFE, Seq: sentSeq, Data: []byte("kato")},
+			}
+			wb, err := wm.Marshal(nil)
+			if err != nil {
+				res.Err = fmt.Sprintf("marshal echo: %v", err)
+				return res
+			}
+			start := time.Now()
+			if _, err := conn.WriteTo(wb, dst); err != nil {
+				continue
+			}
+			// One deadline shared across the entire match loop for this probe.
+			// Cap by the ctx deadline so cancellation is bounded to at most one read window.
+			readDeadline := time.Now().Add(req.Timeout)
+			if d, ok := ctx.Deadline(); ok && d.Before(readDeadline) {
+				readDeadline = d
+			}
+			_ = conn.SetReadDeadline(readDeadline)
+			rb := make([]byte, 1500)
+			matched := false
+			for {
+				n, peer, err := conn.ReadFrom(rb)
+				if err != nil {
+					break // timeout/deadline: leave this probe silent
+				}
+				rm, err := icmp.ParseMessage(1 /* IPv4 ICMP protocol number */, rb[:n])
+				if err != nil {
+					continue
+				}
+				// Extract the sequence number from the reply.
+				// NOTE: on unprivileged SOCK_DGRAM ICMP sockets (Linux/macOS) the
+				// kernel overwrites the outgoing Echo ID with the socket's port, so
+				// the reply carries a kernel-assigned ID, not our 0xCAFE.  We therefore
+				// match ONLY on Seq, which the kernel always preserves.
+				var seq int
+				switch body := rm.Body.(type) {
+				case *icmp.Echo:
+					// EchoReply: Seq is directly available.
+					seq = body.Seq
+				case *icmp.TimeExceeded:
+					s, ok := embeddedEchoSeq(body.Data)
+					if !ok {
+						continue
+					}
+					seq = s
+				default:
+					continue // unexpected type: keep reading within the deadline
+				}
+				if seq != sentSeq {
+					continue // stray packet from a different probe: keep reading
+				}
+				// Matched: record the result and stop reading for this probe.
+				hop.RTTMS = time.Since(start).Milliseconds()
+				hop.Responded = true
+				hop.Address = peerIP(peer)
+				hop.Reached = (rm.Type == ipv4.ICMPTypeEchoReply)
+				matched = true
+				break
+			}
+			if matched {
+				break // got a reply for this TTL, stop probing further
+			}
+		}
+		res.Hops = append(res.Hops, hop)
+		if hop.Reached {
+			res.Reached = true
+			res.HopCount = ttl
+			res.LatencyMS = hop.RTTMS
+			break
+		}
+	}
+
+	if req.ResolveNames {
+		for i := range res.Hops {
+			if res.Hops[i].Address == "" {
+				continue
+			}
+			if names, err := net.DefaultResolver.LookupAddr(ctx, res.Hops[i].Address); err == nil && len(names) > 0 {
+				res.Hops[i].Name = strings.TrimSuffix(names[0], ".")
+			}
+		}
+	}
+	return res
+}
+
+// embeddedEchoSeq extracts the ICMP Echo sequence number from the original
+// datagram quoted inside a Time Exceeded message (RFC 792: the body carries the
+// original IP header + first 8 bytes of our ICMP Echo). Returns ok=false if the
+// data is too short or the IP header length is invalid.
+func embeddedEchoSeq(data []byte) (int, bool) {
+	if len(data) < 1 {
+		return 0, false
+	}
+	ihl := int(data[0]&0x0f) * 4
+	if ihl < 20 || len(data) < ihl+8 {
+		return 0, false
+	}
+	// Seq is bytes 6-7 of the 8-byte embedded ICMP header (network byte order).
+	return int(binary.BigEndian.Uint16(data[ihl+6 : ihl+8])), true
+}
+
+// peerIP renders the responding peer address (a datagram ICMP socket reports it as *net.UDPAddr).
+func peerIP(addr net.Addr) string {
+	switch a := addr.(type) {
+	case *net.UDPAddr:
+		return a.IP.String()
+	case *net.IPAddr:
+		return a.IP.String()
+	default:
+		return addr.String()
+	}
 }

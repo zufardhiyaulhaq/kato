@@ -2,6 +2,7 @@ package methods
 
 import (
 	"context"
+	"encoding/binary"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"golang.org/x/net/icmp"
 )
 
 func hostPort(t *testing.T, rawURL string) (string, int) {
@@ -186,6 +189,67 @@ func TestLocalProberDNSCustomServerUnreachable(t *testing.T) {
 	}
 	if res.Err == "" || res.LatencyMS != -1 {
 		t.Errorf("want err set and latency -1, got err=%q latency=%d", res.Err, res.LatencyMS)
+	}
+}
+
+func TestLocalProberTracerouteLoopback(t *testing.T) {
+	// Unprivileged ICMP datagram socket; skip where the node sysctl
+	// net.ipv4.ping_group_range does not cover this process's GID (common on
+	// locked-down CI) so the suite never goes flaky.
+	if c, err := icmp.ListenPacket("udp4", "0.0.0.0"); err != nil {
+		t.Skipf("ICMP datagram socket unavailable (ping_group_range?): %v", err)
+	} else {
+		_ = c.Close()
+	}
+
+	res := LocalProber{}.ProbeTraceroute(context.Background(), TracerouteRequest{
+		Target: "127.0.0.1", MaxHops: 5, Timeout: 2 * time.Second, ProbesPerHop: 1,
+	})
+	if res.Err != "" {
+		t.Fatalf("unexpected setup error: %s", res.Err)
+	}
+	if !res.Reached || res.HopCount != 1 {
+		t.Fatalf("loopback: reached=%v hopCount=%d hops=%+v", res.Reached, res.HopCount, res.Hops)
+	}
+	if res.DestinationIP != "127.0.0.1" {
+		t.Errorf("destinationIp = %q, want 127.0.0.1", res.DestinationIP)
+	}
+	if len(res.Hops) != 1 || !res.Hops[0].Reached || res.Hops[0].Address != "127.0.0.1" {
+		t.Errorf("hops = %+v", res.Hops)
+	}
+}
+
+func TestEmbeddedEchoSeq(t *testing.T) {
+	// Build a synthetic "original datagram" as quoted in an ICMP Time Exceeded:
+	// an IPv4 header of ihlWords*4 bytes, then an 8-byte ICMP echo header whose
+	// last 2 bytes are the sequence number.
+	build := func(ihlWords int, seq uint16) []byte {
+		ihl := ihlWords * 4
+		b := make([]byte, ihl+8)
+		b[0] = 0x40 | byte(ihlWords) // version 4 (high nibble) + IHL (low nibble)
+		binary.BigEndian.PutUint16(b[ihl+6:ihl+8], seq)
+		return b
+	}
+
+	// Standard 20-byte header (IHL=5).
+	if got, ok := embeddedEchoSeq(build(5, 4242)); !ok || got != 4242 {
+		t.Errorf("IHL=5: got (%d,%v), want (4242,true)", got, ok)
+	}
+	// Header with options (IHL=6 -> 24 bytes): offset must track IHL.
+	if got, ok := embeddedEchoSeq(build(6, 777)); !ok || got != 777 {
+		t.Errorf("IHL=6: got (%d,%v), want (777,true)", got, ok)
+	}
+	// Truncated: header claims IHL=5 but the buffer is too short for the 8-byte ICMP.
+	if _, ok := embeddedEchoSeq([]byte{0x45, 0, 0, 0}); ok {
+		t.Error("truncated data: want ok=false")
+	}
+	// Empty.
+	if _, ok := embeddedEchoSeq(nil); ok {
+		t.Error("nil data: want ok=false")
+	}
+	// Invalid IHL (< 5 words = < 20 bytes): degenerate header.
+	if _, ok := embeddedEchoSeq([]byte{0x40, 0, 0, 0, 0, 0, 0, 0, 0, 0}); ok {
+		t.Error("IHL=0: want ok=false")
 	}
 }
 

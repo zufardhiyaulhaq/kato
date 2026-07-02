@@ -1046,3 +1046,63 @@ To resolve several names, fan out with `forEach`.
 | `recordCount` | int | number of addresses resolved |
 | `latencyMs` | int | query time in ms; `-1` on failure |
 | `error` | string | failure reason (NXDOMAIN/timeout/unreachable); `""` on success |
+
+---
+
+### `probe_traceroute`
+
+Active ICMP traceroute from kato's pod: sends echo probes with an increasing IP TTL and
+reads the returning `time-exceeded` (intermediate routers) and `echo-reply` (destination)
+messages, reporting whether the destination was **reached**, how many **hops** away it is,
+and the per-hop path. Scoped to reachability + hop count — when `success` is `false`, the
+`hops` list shows *where* replies stopped. A not-reached destination, a DNS failure, or a
+blocked ICMP socket is a finding (`success: false`), not an error, so a flow can gate later
+steps on `$(steps.<step>.success)`. IPv4 only.
+
+Uses an **unprivileged ICMP datagram socket** — no `CAP_NET_RAW` and no Kubernetes RBAC. Its
+one requirement is that the node sysctl `net.ipv4.ping_group_range` includes kato's pod GID
+(many distros default it open: `0 2147483647`). Where it is locked down, the probe surfaces
+`success: false` with an `error` naming the sysctl — it never crashes and never needs raw
+sockets. Reachability is otherwise governed by NetworkPolicy.
+
+Worst-case wall time ≈ `maxHops × probesPerHop × timeout` when the target is unreachable, so
+keep the engine step timeout in mind, or lower `maxHops`.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `target` | yes | host, IP, or DNS name (resolved to its first IPv4) |
+| `maxHops` | no | maximum TTL to probe before giving up (1–255; default `30`) |
+| `timeout` | no | per-hop reply wait as a Go duration (default `2s`) |
+| `probesPerHop` | no | probes sent per TTL (1–10; default `1`); `>1` improves accuracy against transient loss |
+| `resolveNames` | no | `"true"` to reverse-DNS each responding hop (adds latency; default `"false"`) |
+
+**Scalar outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `success` | bool | destination reached (an echo-reply was received) within `maxHops` |
+| `hopCount` | int | hops to the destination when reached; `-1` if not reached |
+| `respondingHops` | int | count of hops (TTLs) that returned any reply |
+| `destinationIp` | string | resolved IPv4 of `target`; `""` if DNS resolution failed |
+| `latencyMs` | int | RTT to the destination on the final hop in ms; `-1` if not reached |
+| `error` | string | setup failure (DNS / ICMP socket); `""` when the traceroute ran |
+
+**List output `hops`** (one record per probed TTL, in hop order)
+
+| Item field | Type | Description |
+|---|---|---|
+| `hop` | int | TTL / hop number (1-based) |
+| `address` | string | responding router IP; `""` for a silent (`*`) hop |
+| `name` | string | reverse-DNS hostname when `resolveNames` is set; else `""` |
+| `rttMs` | int | RTT for this hop in ms; `-1` if no reply |
+| `responded` | bool | a reply was received at this TTL |
+| `reached` | bool | this hop is the destination (echo-reply) |
+
+When `success` is `false`, reference the list from a `forEach` step to surface the path:
+`forEach: $(steps.<step>.hops)`, then bind `$(item.address)` / `$(item.hop)` in the step's
+`with`. Pair with `probe_tcp`: if a TCP connect fails, a `probe_traceroute` (gated by `when`)
+shows whether the path even gets close — distinguishing "service down" from "network path broken".
+
+---
