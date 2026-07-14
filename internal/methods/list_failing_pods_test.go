@@ -322,7 +322,37 @@ func TestListFailingPodsDeclaresListOutput(t *testing.T) {
 		fields[f.Name] = f.Type
 	}
 	if fields["namespace"] != FieldString || fields["name"] != FieldString ||
-		fields["reason"] != FieldString || fields["restartCount"] != FieldInt {
+		fields["reason"] != FieldString || fields["restartCount"] != FieldInt ||
+		fields["node"] != FieldString {
 		t.Errorf("item fields wrong: %v", fields)
+	}
+}
+
+// TestListFailingPodsCarriesNode: a failing pod carries the node it landed on, so a
+// forEach can drill from the crashing pod straight into its node (memory pressure
+// explains an OOM, disk pressure an image-pull failure) without a second list step.
+// An unscheduled pod reports "" rather than omitting the field.
+func TestListFailingPodsCarriesNode(t *testing.T) {
+	scheduled := crashingPod("api-x", "payments", dsOwner("ds"), 5, "CrashLoopBackOff")
+	scheduled.Spec.NodeName = "node-a"
+	unscheduled := crashingPod("api-y", "payments", dsOwner("ds"), 1, "ImagePullBackOff")
+
+	client := fake.NewSimpleClientset(scheduled, unscheduled)
+	m, _ := Builtin().Get("list_failing_pods")
+	out, err := m.Run(context.Background(), Deps{Kube: client},
+		map[string]string{"namespace": "payments", "kind": "DaemonSet", "name": "ds"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	pods := out["pods"].([]map[string]any)
+	if len(pods) != 2 {
+		t.Fatalf("pods len = %d, want 2", len(pods))
+	}
+	// Worst-first: api-x (5 restarts) before api-y (1).
+	if pods[0]["name"] != "api-x" || pods[0]["node"] != "node-a" {
+		t.Errorf("scheduled pod node = %v, want node-a (%v)", pods[0]["node"], pods[0])
+	}
+	if pods[1]["node"] != "" {
+		t.Errorf("unscheduled pod node = %v, want empty string", pods[1]["node"])
 	}
 }

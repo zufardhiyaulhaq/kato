@@ -49,6 +49,7 @@ func (listFailingPods) ListOutputs() []ListOutputField {
 			{Name: "name", Type: FieldString, Description: "pod name"},
 			{Name: "reason", Type: FieldString, Description: "dominant failure reason"},
 			{Name: "restartCount", Type: FieldInt, Description: "max restartCount across containers"},
+			{Name: "node", Type: FieldString, Description: `scheduled node, "" if unscheduled`},
 		},
 	}}
 }
@@ -77,6 +78,7 @@ func (listFailingPods) Run(ctx context.Context, deps Deps, params map[string]str
 		items = append(items, map[string]any{
 			"namespace": p.Namespace, "name": p.Name,
 			"reason": reason, "restartCount": int64(restarts),
+			"node": p.Spec.NodeName,
 		})
 	}
 	// Worst-first by restartCount, then name for stability.

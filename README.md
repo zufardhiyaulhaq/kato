@@ -2,7 +2,7 @@
 
 Kubernetes troubleshooting via declarative UseCase flows with AI summaries
 
-![Version: 0.4.0](https://img.shields.io/badge/Version-0.4.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.4.0](https://img.shields.io/badge/AppVersion-0.4.0-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/zufardhiyaulhaq/kato/main.yml?branch=main)](https://github.com/zufardhiyaulhaq/kato/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/zufardhiyaulhaq/kato)](https://github.com/zufardhiyaulhaq/kato/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/zufardhiyaulhaq/kato)](https://github.com/zufardhiyaulhaq/kato/pulls)
+![Version: 0.5.0](https://img.shields.io/badge/Version-0.5.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.5.0](https://img.shields.io/badge/AppVersion-0.5.0-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/zufardhiyaulhaq/kato/main.yml?branch=main)](https://github.com/zufardhiyaulhaq/kato/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/zufardhiyaulhaq/kato)](https://github.com/zufardhiyaulhaq/kato/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/zufardhiyaulhaq/kato)](https://github.com/zufardhiyaulhaq/kato/pulls)
 
 > Turn your team's runbooks into versioned CRDs. kato runs the exact checks **you**
 > chose, in the order you chose, and lets an LLM do only the last mile — writing up
@@ -101,7 +101,7 @@ plain-language root cause and fix. Same steps, every time.
 
 ## Built-in methods
 
-kato ships **31 read-only checks** you compose into flows — pods, workloads, nodes,
+kato ships **32 read-only checks** you compose into flows — pods, workloads, nodes,
 networking, storage, batch, config, the control plane, plus listing/fan-out and
 active network probes:
 
@@ -116,10 +116,10 @@ active network probes:
 | Config & events | `check_configmap`, `check_events` |
 | Control plane | `check_apiserver` |
 | Listing / fan-out | `list_pods`, `list_failing_pods`, `list_nodes`, `list_node_pods` (drive `forEach` across a workload's or node's pods, or the node fleet) |
-| Active probes | `probe_tcp`, `probe_http`, `probe_dns` (run from kato's pod; reachability governed by NetworkPolicy) |
+| Active probes | `probe_tcp`, `probe_http`, `probe_dns`, `probe_traceroute` (run from kato's pod; reachability governed by NetworkPolicy) |
 
 Full reference and every output field: [`docs/METHOD.md`](https://github.com/zufardhiyaulhaq/kato/blob/main/docs/METHOD.md).
-Ready-made UseCases (general pod & node troubleshooting, cluster DNS, the Terway CNI, the istio-ingressgateway, and control-plane health)
+Ready-made UseCases (general pod, deployment & node troubleshooting, cluster DNS, the Terway CNI, the istio-ingressgateway, and control-plane health)
 live under [`examples/`](https://github.com/zufardhiyaulhaq/kato/tree/main/examples).
 
 ## API
@@ -170,7 +170,7 @@ helm install my-kato kato/kato --values values.yaml
 | config.stepTimeout | string | `"30s"` |  |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
 | image.repository | string | `"ghcr.io/zufardhiyaulhaq/kato"` |  |
-| image.tag | string | `"0.4.0"` |  |
+| image.tag | string | `"0.5.0"` |  |
 | modelConfig.apiKey | string | `""` |  |
 | modelConfig.baseURL | string | `"https://api.openai.com/v1"` |  |
 | modelConfig.default | bool | `true` |  |

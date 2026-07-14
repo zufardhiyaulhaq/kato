@@ -65,6 +65,7 @@ runtime.
 | [`probe_tcp`](#probe_tcp) | Active TCP connect check — does `target:port` accept a connection? |
 | [`probe_http`](#probe_http) | Active HTTP(S) GET with status and optional body assertions |
 | [`probe_dns`](#probe_dns) | Active DNS resolution check — does a name resolve to an address? |
+| [`probe_traceroute`](#probe_traceroute) | Active ICMP traceroute — is the destination reachable, how many hops away, and where does the path stop? — also produces list output `hops` |
 
 ---
 
@@ -801,9 +802,12 @@ Produces a **list output** (`pods`) consumable only by a `forEach` step.
 | `name` | string | pod name |
 | `reason` | string | dominant failure reason (e.g. `CrashLoopBackOff`, `OOMKilled`) |
 | `restartCount` | int | max restartCount across the pod's containers |
+| `node` | string | scheduled node, `""` if unscheduled |
 
 Reference the list from a `forEach` step: `forEach: $(steps.<step>.pods)`, then
-bind `$(item.namespace)` / `$(item.name)` in the step's `with`.
+bind `$(item.namespace)` / `$(item.name)` in the step's `with`. `$(item.node)` lets the
+same fan-out drill from a crashing pod straight into its node (`check_node_status` /
+`describe_node`) — memory pressure explains an OOM, disk pressure an image-pull failure.
 
 Note: `maxListItems` caps the `pods` list output itself; the step's separate `maxItems` field caps how many of those items a subsequent `forEach` iterates.
 
@@ -952,6 +956,14 @@ Reference the list from a `forEach` step: `forEach: $(steps.<step>.pods)`, then 
 the full match even when the list is capped by `maxListItems`.
 
 ---
+
+## Probes
+
+Active checks run **from kato's pod**: they send real traffic rather than reading the
+API server, so they answer "can this actually be reached from inside the cluster?".
+A failed probe is a finding (`success: false`), never a method error, so a flow can
+gate later steps on `$(steps.<step>.success)`. None of them need Kubernetes RBAC —
+reachability is governed by NetworkPolicy.
 
 ### `probe_tcp`
 

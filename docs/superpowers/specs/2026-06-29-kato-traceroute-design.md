@@ -1,5 +1,5 @@
 # kato Network Probe Method: `probe_traceroute`
-
+{% raw %}
 **Status:** Approved (design)
 
 **Goal:** Add a fourth active network-probe method — `probe_traceroute` — so a UseCase can
@@ -267,3 +267,4 @@ is computed as the count of `HopResult`s with `Responded=true`.
   monitoring tool.
 - **Centralized multi-cluster execution** — the `RemoteProber` vehicle. The existing `Prober`
   seam is the only concession made here for it; it remains a separate spec.
+{% endraw %}

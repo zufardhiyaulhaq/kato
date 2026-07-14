@@ -100,7 +100,7 @@ plain-language root cause and fix. Same steps, every time.
 
 ## Built-in methods
 
-kato ships **31 read-only checks** you compose into flows — pods, workloads, nodes,
+kato ships **32 read-only checks** you compose into flows — pods, workloads, nodes,
 networking, storage, batch, config, the control plane, plus listing/fan-out and
 active network probes:
 
@@ -115,10 +115,10 @@ active network probes:
 | Config & events | `check_configmap`, `check_events` |
 | Control plane | `check_apiserver` |
 | Listing / fan-out | `list_pods`, `list_failing_pods`, `list_nodes`, `list_node_pods` (drive `forEach` across a workload's or node's pods, or the node fleet) |
-| Active probes | `probe_tcp`, `probe_http`, `probe_dns` (run from kato's pod; reachability governed by NetworkPolicy) |
+| Active probes | `probe_tcp`, `probe_http`, `probe_dns`, `probe_traceroute` (run from kato's pod; reachability governed by NetworkPolicy) |
 
 Full reference and every output field: [`docs/METHOD.md`](https://github.com/zufardhiyaulhaq/kato/blob/main/docs/METHOD.md).
-Ready-made UseCases (general pod & node troubleshooting, cluster DNS, the Terway CNI, the istio-ingressgateway, and control-plane health)
+Ready-made UseCases (general pod, deployment & node troubleshooting, cluster DNS, the Terway CNI, the istio-ingressgateway, and control-plane health)
 live under [`examples/`](https://github.com/zufardhiyaulhaq/kato/tree/main/examples).
 
 ## API

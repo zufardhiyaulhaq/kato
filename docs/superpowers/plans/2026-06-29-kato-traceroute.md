@@ -1,5 +1,5 @@
 # probe_traceroute Method Implementation Plan
-
+{% raw %}
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a `probe_traceroute` built-in method that performs an unprivileged ICMP traceroute and reports reachability, hop count, and a per-hop list.
@@ -656,3 +656,4 @@ Expected: build clean, vet clean, all packages `ok` (the `TestLocalProberTracero
 **Type consistency** — `TracerouteRequest`/`TracerouteResult`/`HopResult` field names (`MaxHops`, `ProbesPerHop`, `ResolveNames`, `RTTMS`, `Responded`, `Reached`, `HopCount`, `LatencyMS`, `DestinationIP`, `Err`) are identical across the Task 1 definition, the Task 1 `LocalProber` body, the `fakeProber` stub, and the Task 2 method/tests. Output keys (`success`, `hopCount`, `respondingHops`, `destinationIp`, `latencyMs`, `error`, `hops`) and `hops` item keys (`hop`, `address`, `name`, `rttMs`, `responded`, `reached`) match between the method, its tests, and the docs.
 
 **Non-goals confirmed out of scope:** `CAP_NET_RAW`/raw sockets, IPv6, AS/geo/MTU, Paris-traceroute, `RemoteProber` — none appear in any task.
+{% endraw %}
