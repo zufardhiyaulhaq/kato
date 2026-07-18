@@ -15,6 +15,10 @@ import (
 
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 // Prober performs active network probes. LocalProber is the in-process default
@@ -26,6 +30,7 @@ type Prober interface {
 	ProbeHTTP(ctx context.Context, req HTTPProbeRequest) HTTPResult
 	ProbeDNS(ctx context.Context, req DNSProbeRequest) DNSResult
 	ProbeTraceroute(ctx context.Context, req TracerouteRequest) TracerouteResult
+	ProbeGRPC(ctx context.Context, req GRPCProbeRequest) GRPCResult
 }
 
 // TCPResult is the outcome of a TCP connect probe.
@@ -102,6 +107,25 @@ type HopResult struct {
 	RTTMS     int64  // RTT in ms; -1 if no reply
 	Responded bool   // a reply came back at this TTL
 	Reached   bool   // this hop is the destination
+}
+
+// GRPCProbeRequest is a fully-resolved gRPC health probe (params already parsed/defaulted).
+type GRPCProbeRequest struct {
+	Target             string        // host, IP, or DNS name
+	Port               int           // gRPC port
+	Service            string        // health service name; "" = overall server health
+	TLS                bool          // true = TLS, false = plaintext h2c
+	InsecureSkipVerify bool          // skip cert verification (TLS only)
+	ServerName         string        // TLS SNI / cert-name override; "" = derived from target
+	Timeout            time.Duration // whole-operation bound (dial + Check RPC)
+}
+
+// GRPCResult is the outcome of a gRPC health check.
+type GRPCResult struct {
+	Serving   bool   // health status == SERVING
+	Status    string // "SERVING"/"NOT_SERVING"/"UNKNOWN"; "" if the RPC never completed
+	LatencyMS int64  // Check round-trip in ms; -1 on failure
+	Err       string // failure reason (dial/timeout/UNIMPLEMENTED/NotFound); "" on success
 }
 
 // LocalProber probes from the current process. Network reachability is governed by
@@ -304,6 +328,43 @@ func (LocalProber) ProbeTraceroute(ctx context.Context, req TracerouteRequest) T
 		}
 	}
 	return res
+}
+
+func (LocalProber) ProbeGRPC(ctx context.Context, req GRPCProbeRequest) GRPCResult {
+	ctx, cancel := context.WithTimeout(ctx, req.Timeout)
+	defer cancel()
+
+	var creds credentials.TransportCredentials
+	if req.TLS {
+		creds = credentials.NewTLS(&tls.Config{
+			InsecureSkipVerify: req.InsecureSkipVerify,
+			ServerName:         req.ServerName, // "" -> derived from the dial target
+		})
+	} else {
+		creds = insecure.NewCredentials()
+	}
+
+	addr := net.JoinHostPort(req.Target, strconv.Itoa(req.Port))
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(creds))
+	if err != nil {
+		return GRPCResult{LatencyMS: -1, Err: err.Error()}
+	}
+	defer conn.Close()
+
+	start := time.Now()
+	// grpc.NewClient is lazy; this Check forces the connect, so dial failures,
+	// deadline, UNIMPLEMENTED (no health service) and NotFound (service not
+	// registered) all surface here as the RPC error — findings, not method errors.
+	resp, err := grpc_health_v1.NewHealthClient(conn).
+		Check(ctx, &grpc_health_v1.HealthCheckRequest{Service: req.Service})
+	if err != nil {
+		return GRPCResult{LatencyMS: -1, Err: err.Error()}
+	}
+	return GRPCResult{
+		Serving:   resp.GetStatus() == grpc_health_v1.HealthCheckResponse_SERVING,
+		Status:    resp.GetStatus().String(), // SERVING / NOT_SERVING / UNKNOWN
+		LatencyMS: time.Since(start).Milliseconds(),
+	}
 }
 
 // embeddedEchoSeq extracts the ICMP Echo sequence number from the original

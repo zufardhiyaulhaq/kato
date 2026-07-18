@@ -5,7 +5,7 @@ Kubernetes cluster.
 
 ## Prerequisites
 
-- **Go 1.24+**
+- **Go 1.25+**
 - **kubectl** and a cluster you can reach (a local [kind](https://kind.sigs.k8s.io/)
   cluster is ideal for development)
 - **helm** (only for installing via the chart / `helm lint`)

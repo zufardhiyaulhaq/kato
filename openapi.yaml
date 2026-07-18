@@ -1,0 +1,742 @@
+openapi: 3.0.3
+info:
+  title: kato REST API
+  description: |
+    kato exposes Kubernetes troubleshooting as declarative `UseCase` flows with
+    AI-written summaries. This is the v1 HTTP front door served by the kato
+    process (see `internal/server/server.go`). It shares one execution engine
+    with the `Run` CRD path, so a run triggered here is equivalent to a `Run`
+    created via `kubectl`/GitOps.
+
+    Endpoints fall into three groups:
+      * **Health** — `GET /healthz`, `GET /readyz` (liveness/readiness probes).
+      * **Catalog (read-only)** — list/get `UseCase`s, list built-in `methods`,
+        list/get `Run`s.
+      * **Execution** — `POST /api/v1/usecases/{name}/run` executes a flow
+        deterministically and persists a `Run` audit record.
+
+    ## Serialization note
+    Two families of response objects use different key casing, matching the Go
+    source exactly:
+      * View objects (`useCaseView`, `methodView`, …) and the CRD types carry
+        lowercase JSON tags (`name`, `ready`, …).
+      * `methods.Param` / `methods.OutputField` and the engine's `StepResult` /
+        `IterationResult` have **no** JSON tags, so they serialize with
+        capitalized Go field names (`Name`, `Required`, `Outcome`, `Outputs`, …).
+    The schemas below preserve that casing so generated clients match the wire.
+  version: v1alpha1
+  license:
+    name: See repository
+    url: https://github.com/zufardhiyaulhaq/kato
+  contact:
+    name: kato
+    url: https://github.com/zufardhiyaulhaq/kato
+
+servers:
+  - url: http://localhost:8080
+    description: Local port-forward (kubectl -n kato port-forward svc/kato 8080:8080)
+  - url: http://kato.kato.svc.cluster.local:8080
+    description: In-cluster Service (default namespace "kato", port 8080)
+
+tags:
+  - name: health
+    description: Liveness and readiness probes.
+  - name: usecases
+    description: Troubleshooting flows (the UseCase CRD) and their execution.
+  - name: methods
+    description: The built-in read-only check library.
+  - name: runs
+    description: Persisted execution audit records (the Run CRD).
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      description: Always returns 200 while the HTTP server is serving. Empty body.
+      operationId: healthz
+      responses:
+        '200':
+          description: Server is alive.
+
+  /readyz:
+    get:
+      tags: [health]
+      summary: Readiness probe
+      description: Always returns 200 while the HTTP server is serving. Empty body.
+      operationId: readyz
+      responses:
+        '200':
+          description: Server is ready.
+
+  /api/v1/usecases:
+    get:
+      tags: [usecases]
+      summary: List use cases
+      description: |
+        Returns every `UseCase` in the in-process cache (populated by the
+        UseCase reconciler), sorted lexicographically by name. Each entry
+        includes a `ready` flag reflecting the UseCase's validation status —
+        only Ready use cases can be run.
+      operationId: listUseCases
+      responses:
+        '200':
+          description: The list of use cases.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [usecases]
+                properties:
+                  usecases:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UseCaseView'
+              example:
+                usecases:
+                  - name: pod-troubleshooting
+                    description: Diagnose why a pod is crash looping
+                    ready: true
+                    inputs:
+                      - name: namespace
+                        type: string
+                        required: true
+                      - name: pod
+                        type: string
+                        required: true
+
+  /api/v1/usecases/{name}:
+    get:
+      tags: [usecases]
+      summary: Get one use case's contract
+      description: Returns a single use case's inputs, description, and readiness.
+      operationId: getUseCase
+      parameters:
+        - $ref: '#/components/parameters/UseCaseName'
+      responses:
+        '200':
+          description: The use case.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UseCaseView'
+        '404':
+          description: No use case with that name is cached.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: use case not found
+
+  /api/v1/usecases/{name}/run:
+    post:
+      tags: [usecases]
+      summary: Execute a use case
+      description: |
+        Runs the named use case's flow **deterministically** against the given
+        inputs, then hands the filtered evidence to the configured LLM for a
+        summary, and persists the result as a `Run` CRD (labeled
+        `kato.zufardhiyaulhaq.com/managed-by: api`).
+
+        Semantics:
+          * The use case must exist and be **Ready** (passed validation),
+            otherwise 404 / 422.
+          * Caller inputs are validated up front: a missing-required or unknown
+            input fails the whole call with **400** before any step runs — and
+            nothing is persisted.
+          * A failing step is a *finding*, not an abort: the flow continues and
+            the failure is recorded. Individual step failures never produce a
+            non-2xx status here.
+          * The LLM being unreachable is not a failure: the run still returns
+            all evidence with an empty `summary` and a `warning`.
+          * Concurrency is bounded by `KATO_MAX_CONCURRENT` (default 10) via a
+            non-blocking semaphore; excess requests get **429** immediately.
+      operationId: runUseCase
+      parameters:
+        - $ref: '#/components/parameters/UseCaseName'
+        - name: includeOutputs
+          in: query
+          required: false
+          description: |
+            Set to `false` to omit the per-step `steps` array from the response
+            (the run is still fully persisted to the `Run` CRD). Any other value
+            (or omitting it) includes `steps`.
+          schema:
+            type: string
+            enum: ['false']
+      requestBody:
+        required: false
+        description: |
+          Inputs for the flow. Missing body is treated as empty inputs (which
+          fails validation if the use case declares required inputs).
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunRequest'
+            example:
+              inputs:
+                namespace: payments
+                pod: payment-api-xyz
+      responses:
+        '200':
+          description: The run executed (possibly with per-step findings) and was persisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunResponse'
+              example:
+                run: pod-troubleshooting-abc12
+                phase: PartiallySucceeded
+                summary: |
+                  The pod is crash looping because the container is OOMKilled...
+                steps:
+                  - Name: status
+                    Outcome: completed
+                    Outputs:
+                      phase: Running
+                      ready: false
+                      restartCount: 7
+                      lastTerminationReason: OOMKilled
+                  - Name: previous-logs
+                    Outcome: completed
+                    Outputs:
+                      logs: "panic: out of memory..."
+        '400':
+          description: Invalid JSON body, or invalid inputs (missing required / unknown input).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                badJSON:
+                  value:
+                    error: invalid JSON body
+                badInputs:
+                  value:
+                    error: missing required input "pod"
+        '404':
+          description: No use case with that name is cached.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: use case not found
+        '422':
+          description: The use case exists but is not Ready (failed validation).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: use case is not Ready (failed validation)
+        '429':
+          description: Too many concurrent runs (the KATO_MAX_CONCURRENT slots are full).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: too many concurrent runs
+        '500':
+          description: |
+            Execution error (a non-input engine error) or the run executed but
+            the Run CRD could not be persisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: 'run executed but failed to persist: ...'
+
+  /api/v1/methods:
+    get:
+      tags: [methods]
+      summary: List built-in methods
+      description: |
+        Returns every registered read-only check with its params, scalar
+        output fields, and any list outputs (consumable by a `forEach` step).
+        This is the runtime equivalent of `docs/METHOD.md`.
+      operationId: listMethods
+      responses:
+        '200':
+          description: The list of methods.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [methods]
+                properties:
+                  methods:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MethodView'
+              example:
+                methods:
+                  - name: check_pod_status
+                    description: Pod phase, readiness, restarts, last termination.
+                    params:
+                      - Name: namespace
+                        Required: true
+                        Description: Pod namespace
+                      - Name: name
+                        Required: true
+                        Description: Pod name
+                    outputs:
+                      - Name: phase
+                        Type: string
+                        Description: Pending|Running|Succeeded|Failed|Unknown
+                      - Name: restartCount
+                        Type: int
+                        Description: max restartCount across containers, 0 if none
+                    lists:
+                      - name: containers
+                        description: one entry per container
+                        itemFields:
+                          - name: name
+                            type: string
+                            description: container name
+                          - name: ready
+                            type: bool
+                            description: container Ready
+
+  /api/v1/runs:
+    get:
+      tags: [runs]
+      summary: List runs
+      description: |
+        Lists persisted `Run` records in kato's namespace, newest first.
+        Optionally filter to a single use case with the `usecase` query
+        parameter (matches the `kato.zufardhiyaulhaq.com/usecase` label).
+      operationId: listRuns
+      parameters:
+        - name: usecase
+          in: query
+          required: false
+          description: Filter to runs of this use case. Empty = all use cases.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The list of runs (full Run CRD objects), newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runs]
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Run'
+        '500':
+          description: Failed to list runs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/runs/{name}:
+    get:
+      tags: [runs]
+      summary: Get one run
+      description: Returns a single persisted `Run` CRD by name from kato's namespace.
+      operationId: getRun
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The Run's metadata.name.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The run.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '404':
+          description: No run with that name.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: run not found
+        '500':
+          description: Failed to fetch the run.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  parameters:
+    UseCaseName:
+      name: name
+      in: path
+      required: true
+      description: The UseCase's metadata.name.
+      schema:
+        type: string
+
+  schemas:
+    Error:
+      type: object
+      description: Uniform error envelope for all non-2xx responses.
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message.
+
+    InputDecl:
+      type: object
+      description: One declared UseCase input. v1 supports type "string" only.
+      required: [name]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [string]
+          default: string
+          description: Input type. Omitted in JSON when empty; defaults to "string".
+        required:
+          type: boolean
+          default: false
+          description: Omitted in JSON when false.
+
+    UseCaseView:
+      type: object
+      description: The API projection of a UseCase (its runnable contract).
+      required: [name, description, inputs, ready]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        inputs:
+          type: array
+          items:
+            $ref: '#/components/schemas/InputDecl'
+        ready:
+          type: boolean
+          description: True when the UseCase passed validation and can be run.
+
+    Param:
+      type: object
+      description: >
+        A method input parameter. NOTE: serialized with capitalized keys
+        (no JSON tags on the Go struct).
+      required: [Name, Required, Description]
+      properties:
+        Name:
+          type: string
+        Required:
+          type: boolean
+        Description:
+          type: string
+
+    OutputField:
+      type: object
+      description: >
+        A method scalar output field. NOTE: serialized with capitalized keys
+        (no JSON tags on the Go struct).
+      required: [Name, Type, Description]
+      properties:
+        Name:
+          type: string
+        Type:
+          type: string
+          enum: [string, int, bool]
+        Description:
+          type: string
+
+    ItemFieldView:
+      type: object
+      description: One typed field of a list output's item record.
+      required: [name, type, description]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [string, int, bool]
+        description:
+          type: string
+
+    ListOutputView:
+      type: object
+      description: A method's list output (a named collection of item records).
+      required: [name, description]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        itemFields:
+          type: array
+          items:
+            $ref: '#/components/schemas/ItemFieldView'
+
+    MethodView:
+      type: object
+      description: The API projection of a registered built-in method.
+      required: [name, description, params, outputs]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        params:
+          type: array
+          items:
+            $ref: '#/components/schemas/Param'
+        outputs:
+          type: array
+          items:
+            $ref: '#/components/schemas/OutputField'
+        lists:
+          type: array
+          description: List outputs, omitted when the method produces none.
+          items:
+            $ref: '#/components/schemas/ListOutputView'
+
+    RunRequest:
+      type: object
+      description: Body of a run request.
+      properties:
+        inputs:
+          type: object
+          description: Input name/value pairs. All values are strings on the wire.
+          additionalProperties:
+            type: string
+
+    Outputs:
+      type: object
+      description: >
+        A step's outputs: a flat map of the method's declared scalar outputs
+        (string / integer / boolean values) plus, for list-producing methods,
+        list outputs as arrays of item records. Values are typed per the
+        method's declared field types.
+      additionalProperties: true
+
+    IterationResult:
+      type: object
+      description: >
+        One forEach iteration's result (engine.IterationResult). NOTE:
+        serialized with capitalized keys (no JSON tags on the Go struct).
+      properties:
+        Item:
+          type: object
+          description: The list item this iteration ran against.
+          additionalProperties:
+            type: string
+        Outcome:
+          type: string
+          enum: [completed, failed]
+        Outputs:
+          $ref: '#/components/schemas/Outputs'
+        Error:
+          type: string
+          description: Failure reason when Outcome is failed.
+
+    StepResult:
+      type: object
+      description: >
+        One step's result as returned inline in a run response
+        (engine.StepResult). NOTE: serialized with capitalized keys (no JSON
+        tags on the Go struct).
+      properties:
+        Name:
+          type: string
+        Outcome:
+          type: string
+          enum: [completed, skipped, failed]
+        Reason:
+          type: string
+          description: Why the step was skipped or failed.
+        Outputs:
+          $ref: '#/components/schemas/Outputs'
+        Error:
+          type: string
+        Iterations:
+          type: array
+          description: Per-item results for a forEach step.
+          items:
+            $ref: '#/components/schemas/IterationResult'
+        Note:
+          type: string
+          description: forEach truncation note, e.g. "matched 12, checked 5".
+        SummaryFilter:
+          type: array
+          nullable: true
+          description: >
+            The step's summaryFilter (which outputs reach the LLM). null = all
+            outputs; empty = none.
+          items:
+            type: string
+
+    RunResponse:
+      type: object
+      description: The synchronous response of a run request.
+      required: [run, phase]
+      properties:
+        run:
+          type: string
+          description: The created Run CRD's metadata.name.
+        phase:
+          type: string
+          enum: [Running, Succeeded, PartiallySucceeded, Failed]
+        summary:
+          type: string
+          description: LLM-written summary. Omitted when empty.
+        warning:
+          type: string
+          description: Set when the summary could not be produced. Omitted when empty.
+        steps:
+          type: array
+          description: >
+            Per-step results. Omitted when the includeOutputs=false query
+            parameter is set.
+          items:
+            $ref: '#/components/schemas/StepResult'
+
+    # ---- Run CRD (returned verbatim by GET /runs and GET /runs/{name}) ----
+
+    ObjectMeta:
+      type: object
+      description: >
+        Standard Kubernetes object metadata (subset). Additional standard
+        fields may be present.
+      properties:
+        name:
+          type: string
+        generateName:
+          type: string
+        namespace:
+          type: string
+        uid:
+          type: string
+        resourceVersion:
+          type: string
+        creationTimestamp:
+          type: string
+          format: date-time
+          nullable: true
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        annotations:
+          type: object
+          additionalProperties:
+            type: string
+      additionalProperties: true
+
+    RunSpec:
+      type: object
+      description: The Run's spec.
+      required: [useCase]
+      properties:
+        useCase:
+          type: string
+        inputs:
+          type: object
+          additionalProperties:
+            type: string
+
+    RunStepIteration:
+      type: object
+      description: One forEach iteration recorded on the Run CRD.
+      required: [outcome]
+      properties:
+        item:
+          type: object
+          additionalProperties:
+            type: string
+        outcome:
+          type: string
+          enum: [completed, failed]
+        outputs:
+          $ref: '#/components/schemas/Outputs'
+        error:
+          type: string
+
+    RunStep:
+      type: object
+      description: One step recorded on the Run CRD status.
+      required: [name, outcome]
+      properties:
+        name:
+          type: string
+        outcome:
+          type: string
+          enum: [completed, skipped, failed]
+        reason:
+          type: string
+        outputs:
+          $ref: '#/components/schemas/Outputs'
+        error:
+          type: string
+        iterations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunStepIteration'
+        note:
+          type: string
+
+    RunStatus:
+      type: object
+      description: The Run's status subresource.
+      properties:
+        phase:
+          type: string
+          enum: [Running, Succeeded, PartiallySucceeded, Failed]
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunStep'
+        summary:
+          type: string
+        note:
+          type: string
+          description: >
+            Reconciler-level message (validation failure reason for an external
+            Run, or the reap note for a stuck Run).
+        warning:
+          type: string
+          description: Set when the summary could not be produced.
+        modelConfig:
+          type: string
+          description: Which ModelConfig produced the summary.
+
+    Run:
+      type: object
+      description: >
+        The Run custom resource, returned verbatim (Kubernetes object) by the
+        run read endpoints.
+      properties:
+        apiVersion:
+          type: string
+          example: kato.zufardhiyaulhaq.com/v1alpha1
+        kind:
+          type: string
+          example: Run
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/RunSpec'
+        status:
+          $ref: '#/components/schemas/RunStatus'

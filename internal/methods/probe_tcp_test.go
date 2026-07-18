@@ -9,15 +9,17 @@ import (
 // fakeProber records the last call and returns canned results. Shared by the
 // probe_tcp and probe_http method tests (no real network).
 type fakeProber struct {
-	tcp       TCPResult
-	http      HTTPResult
-	dns       DNSResult
+	tcp        TCPResult
+	http       HTTPResult
+	dns        DNSResult
+	grpc       GRPCResult
 	gotTarget  string
 	gotPort    int
 	gotHTTP    HTTPProbeRequest
 	gotDNS     DNSProbeRequest
 	traceroute TracerouteResult
 	gotTrace   TracerouteRequest
+	gotGRPC    GRPCProbeRequest
 }
 
 func (f *fakeProber) ProbeTCP(_ context.Context, target string, port int, _ time.Duration) TCPResult {
@@ -38,6 +40,11 @@ func (f *fakeProber) ProbeDNS(_ context.Context, req DNSProbeRequest) DNSResult 
 func (f *fakeProber) ProbeTraceroute(_ context.Context, req TracerouteRequest) TracerouteResult {
 	f.gotTrace = req
 	return f.traceroute
+}
+
+func (f *fakeProber) ProbeGRPC(_ context.Context, req GRPCProbeRequest) GRPCResult {
+	f.gotGRPC = req
+	return f.grpc
 }
 
 func TestProbeTCPSuccess(t *testing.T) {

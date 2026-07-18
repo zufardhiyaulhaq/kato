@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"golang.org/x/net/icmp"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 func hostPort(t *testing.T, rawURL string) (string, int) {
@@ -268,5 +271,80 @@ func TestLocalProberHTTPNoBodyCheck(t *testing.T) {
 	})
 	if !res.StatusMatched || !res.BodyMatched {
 		t.Errorf("got %+v, want statusMatched and bodyMatched true", res)
+	}
+}
+
+// startHealthServer boots a plaintext gRPC server with the standard health
+// service on a loopback port and returns its host, port, the *health.Server (to
+// flip statuses), and a stop func. No external network.
+func startHealthServer(t *testing.T) (host string, port int, hs *health.Server, stop func()) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := grpc.NewServer()
+	hs = health.NewServer() // overall service "" defaults to SERVING
+	grpc_health_v1.RegisterHealthServer(s, hs)
+	go func() { _ = s.Serve(ln) }()
+	h, p := hostPort(t, "http://"+ln.Addr().String())
+	return h, p, hs, s.Stop
+}
+
+func TestLocalProberGRPCServing(t *testing.T) {
+	host, port, _, stop := startHealthServer(t)
+	defer stop()
+
+	res := LocalProber{}.ProbeGRPC(context.Background(), GRPCProbeRequest{
+		Target: host, Port: port, Timeout: 2 * time.Second,
+	})
+	if !res.Serving || res.Status != "SERVING" {
+		t.Fatalf("got %+v, want Serving/SERVING", res)
+	}
+	if res.Err != "" || res.LatencyMS < 0 {
+		t.Errorf("got err=%q latency=%d", res.Err, res.LatencyMS)
+	}
+}
+
+func TestLocalProberGRPCNotServing(t *testing.T) {
+	host, port, hs, stop := startHealthServer(t)
+	defer stop()
+	hs.SetServingStatus("cart", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+
+	res := LocalProber{}.ProbeGRPC(context.Background(), GRPCProbeRequest{
+		Target: host, Port: port, Service: "cart", Timeout: 2 * time.Second,
+	})
+	if res.Serving || res.Status != "NOT_SERVING" {
+		t.Errorf("got %+v, want !Serving/NOT_SERVING", res)
+	}
+}
+
+func TestLocalProberGRPCUnknownService(t *testing.T) {
+	host, port, _, stop := startHealthServer(t)
+	defer stop()
+
+	// A service the server never registered: Check fails with gRPC NotFound —
+	// a finding (empty status + error), NOT a SERVICE_UNKNOWN status.
+	res := LocalProber{}.ProbeGRPC(context.Background(), GRPCProbeRequest{
+		Target: host, Port: port, Service: "never-registered", Timeout: 2 * time.Second,
+	})
+	if res.Serving || res.Status != "" || res.Err == "" || res.LatencyMS != -1 {
+		t.Errorf("got %+v, want !Serving, empty status, err set, latency -1", res)
+	}
+}
+
+func TestLocalProberGRPCConnRefused(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port := hostPort(t, "http://"+ln.Addr().String())
+	ln.Close() // nothing listening on this port now
+
+	res := LocalProber{}.ProbeGRPC(context.Background(), GRPCProbeRequest{
+		Target: "127.0.0.1", Port: port, Timeout: 500 * time.Millisecond,
+	})
+	if res.Serving || res.Status != "" || res.Err == "" || res.LatencyMS != -1 {
+		t.Errorf("got %+v, want failure finding", res)
 	}
 }

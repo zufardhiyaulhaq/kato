@@ -66,6 +66,7 @@ runtime.
 | [`probe_http`](#probe_http) | Active HTTP(S) GET with status and optional body assertions |
 | [`probe_dns`](#probe_dns) | Active DNS resolution check — does a name resolve to an address? |
 | [`probe_traceroute`](#probe_traceroute) | Active ICMP traceroute — is the destination reachable, how many hops away, and where does the path stop? — also produces list output `hops` |
+| [`probe_grpc`](#probe_grpc) | Active gRPC health check — is `target:port` SERVING (`grpc.health.v1.Health/Check`)? |
 
 ---
 
@@ -1116,5 +1117,45 @@ When `success` is `false`, reference the list from a `forEach` step to surface t
 `forEach: $(steps.<step>.hops)`, then bind `$(item.address)` / `$(item.hop)` in the step's
 `with`. Pair with `probe_tcp`: if a TCP connect fails, a `probe_traceroute` (gated by `when`)
 shows whether the path even gets close — distinguishing "service down" from "network path broken".
+
+---
+
+### `probe_grpc`
+
+Active gRPC health check from kato's pod: dials `target:port` and calls the standard
+`grpc.health.v1.Health/Check` RPC (the same check as the widely-used `grpc-health-probe`),
+reporting whether the service is **SERVING**. A `NOT_SERVING`/`UNKNOWN` status, a transport
+failure, a missing health service (`UNIMPLEMENTED`), or an unregistered service name
+(`NotFound`) is a finding (`success: false`), not an error — so a flow can gate later steps on
+`$(steps.<step>.success)`. Set an empty `service` (the default) to check overall server health,
+or a service name to check a specific registered service. Supports plaintext (`tls: "false"`,
+the default) and TLS (`tls: "true"`, with `insecureSkipVerify`/`serverName` for cert handling).
+Runs from kato's pod; reachability is governed by NetworkPolicy (no Kubernetes RBAC needed).
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `target` | yes | host, IP, or DNS name |
+| `port` | yes | gRPC port (1–65535) |
+| `service` | no | health service name; empty = overall server health |
+| `tls` | no | `"true"` for TLS, `"false"` for plaintext h2c (default `"false"`) |
+| `insecureSkipVerify` | no | `"true"` to accept self-signed certs (TLS only; default `"false"`) |
+| `serverName` | no | TLS SNI / cert-name override; empty = derived from `target` |
+| `timeout` | no | whole-operation timeout (dial + RPC) as a Go duration (default `5s`) |
+
+**Scalar outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `success` | bool | health status is `SERVING` |
+| `status` | string | `SERVING`/`NOT_SERVING`/`UNKNOWN`; `""` if the RPC never completed |
+| `latencyMs` | int | Check round-trip in ms; `-1` on failure |
+| `error` | string | failure reason (dial/timeout/`UNIMPLEMENTED`/`NotFound`); `""` on success |
+
+Pair with `probe_tcp`: gate `probe_grpc` on `$(steps.<tcp>.success)` so the health RPC runs only
+when the port is open, separating "network path broken" from "service unhealthy". `status` is the
+gRPC analog of `probe_http`'s `statusCode`: a non-empty `status` means the endpoint answered
+(reachable), while `success` is specifically `SERVING`.
 
 ---
