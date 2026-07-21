@@ -28,9 +28,10 @@ spec:
     # request path, e.g. "/" or "/healthz". Required (kato has no input defaults).
     - name: path
       required: true
-    # expected HTTP status code, e.g. "200". Required (kato has no input defaults).
+    # expected HTTP status code, e.g. "200". Optional; omitted -> "200".
     - name: expectStatus
-      required: true
+      required: false
+      default: "200"
   steps:
     # L3 name resolution: does the target resolve at all? A failure here (NXDOMAIN/timeout)
     # is a different root cause than a broken path, and it explains a TCP failure below.
