@@ -48,6 +48,10 @@ spec:
                   description: InputDecl declares a UseCase input. v1 supports type
                     "string" only.
                   properties:
+                    default:
+                      description: Default is used when the caller omits this input.
+                        Empty means no default.
+                      type: string
                     name:
                       type: string
                     required:

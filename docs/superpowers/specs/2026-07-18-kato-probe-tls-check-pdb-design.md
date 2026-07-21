@@ -247,7 +247,7 @@ call: `deps.Kube.PolicyV1().PodDisruptionBudgets(namespace).Get(ctx, name, ...)`
 - `docs/METHOD.md` — index rows for both; `probe_tls` section under **Probes** (after
   `probe_traceroute`); `check_pdb` section under **Workloads** (after `check_hpa`),
   including the evictions-not-rollouts note.
-- `charts/kato/README.md.gotmpl` — "32 → **34** read-only checks"; add `check_pdb` to the
+- `charts/kato/README.md.gotmpl` — "33 → **35** read-only checks" (`probe_grpc` landed after this spec was drafted); add `check_pdb` to the
   Workloads row and `probe_tls` to the Active probes row. Regenerate `README.md` and
   `charts/kato/README.md` via `make readme`. (`probe_grpc` remains uncounted until it is
   actually registered.)

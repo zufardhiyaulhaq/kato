@@ -67,7 +67,8 @@ type Engine struct {
 // Execute runs the flow per spec §6. The returned error is ONLY for invalid
 // inputs (callers map it to HTTP 400); step failures live in Result.
 func (e *Engine) Execute(ctx context.Context, uc *v1alpha1.UseCase, inputs map[string]string) (Result, error) {
-	if err := validateInputs(uc, inputs); err != nil {
+	inputs, err := resolveInputs(uc, inputs)
+	if err != nil {
 		return Result{}, err
 	}
 
@@ -370,22 +371,38 @@ type InputError struct{ Msg string }
 
 func (e *InputError) Error() string { return e.Msg }
 
-func validateInputs(uc *v1alpha1.UseCase, given map[string]string) error {
+// resolveInputs validates caller inputs against the UseCase declarations and
+// returns the effective input map: caller values, with each omitted input filled
+// from its Default when non-empty. The returned error is a non-nil *InputError
+// only for an unknown input key, or a required input that has neither a caller
+// value nor a default. A default satisfies required (empty default = none).
+func resolveInputs(uc *v1alpha1.UseCase, given map[string]string) (map[string]string, error) {
+	effective := map[string]string{}
+	for name, v := range given {
+		effective[name] = v
+	}
 	declared := map[string]bool{}
 	for _, in := range uc.Spec.Inputs {
 		declared[in.Name] = true
+		if _, ok := effective[in.Name]; ok {
+			continue // caller value wins
+		}
+		if in.Default != "" {
+			effective[in.Name] = in.Default
+			continue // default fills the omission (also satisfies Required)
+		}
 		if in.Required {
-			if _, ok := given[in.Name]; !ok {
-				return &InputError{Msg: fmt.Sprintf("missing required input %q", in.Name)}
-			}
+			return nil, &InputError{Msg: fmt.Sprintf("missing required input %q", in.Name)}
 		}
 	}
-	for name := range given {
+	// Iterating effective (not given) is safe: every default-injected key names a
+	// declared input, so injected defaults can never trip this unknown-key check.
+	for name := range effective {
 		if !declared[name] {
-			return &InputError{Msg: fmt.Sprintf("unknown input %q", name)}
+			return nil, &InputError{Msg: fmt.Sprintf("unknown input %q", name)}
 		}
 	}
-	return nil
+	return effective, nil
 }
 
 // phaseOf: all-failed (or skipped-due-to-failure) => Failed; any failure with

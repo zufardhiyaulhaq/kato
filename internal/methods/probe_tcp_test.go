@@ -20,6 +20,8 @@ type fakeProber struct {
 	traceroute TracerouteResult
 	gotTrace   TracerouteRequest
 	gotGRPC    GRPCProbeRequest
+	tlsRes     TLSResult
+	gotTLS     TLSProbeRequest
 }
 
 func (f *fakeProber) ProbeTCP(_ context.Context, target string, port int, _ time.Duration) TCPResult {
@@ -45,6 +47,11 @@ func (f *fakeProber) ProbeTraceroute(_ context.Context, req TracerouteRequest) T
 func (f *fakeProber) ProbeGRPC(_ context.Context, req GRPCProbeRequest) GRPCResult {
 	f.gotGRPC = req
 	return f.grpc
+}
+
+func (f *fakeProber) ProbeTLS(_ context.Context, req TLSProbeRequest) TLSResult {
+	f.gotTLS = req
+	return f.tlsRes
 }
 
 func TestProbeTCPSuccess(t *testing.T) {

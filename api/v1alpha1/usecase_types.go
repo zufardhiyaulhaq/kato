@@ -11,6 +11,8 @@ type InputDecl struct {
 	// +kubebuilder:default=string
 	Type     string `json:"type,omitempty"`
 	Required bool   `json:"required,omitempty"`
+	// Default is used when the caller omits this input. Empty means no default.
+	Default string `json:"default,omitempty"`
 }
 
 // Step is one method invocation in the flow.

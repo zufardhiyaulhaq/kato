@@ -57,6 +57,17 @@ spec:
         namespace: $(inputs.namespace)
         name: $(inputs.deployment)
 
+    # Always: disruption budget. A PDB with disruptionsAllowed=0 (blocked) stops node
+    # drains and evictions — NOT rolling updates — so it is the usual reason a drain or
+    # node upgrade hangs. A missing PDB is exists=false (no protection), not an error.
+    # As with the HPA, this assumes the PDB is named after the deployment; point `name`
+    # at the real PDB name if yours differs.
+    - name: pdb
+      method: check_pdb
+      with:
+        namespace: $(inputs.namespace)
+        name: $(inputs.deployment)
+
     # Always: deployment-scoped events — ScalingReplicaSet, FailedCreate, and the
     # admission/quota rejections that never reach a pod.
     - name: events

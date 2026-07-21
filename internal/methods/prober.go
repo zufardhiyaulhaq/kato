@@ -3,9 +3,11 @@ package methods
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"sort"
@@ -31,6 +33,7 @@ type Prober interface {
 	ProbeDNS(ctx context.Context, req DNSProbeRequest) DNSResult
 	ProbeTraceroute(ctx context.Context, req TracerouteRequest) TracerouteResult
 	ProbeGRPC(ctx context.Context, req GRPCProbeRequest) GRPCResult
+	ProbeTLS(ctx context.Context, req TLSProbeRequest) TLSResult
 }
 
 // TCPResult is the outcome of a TCP connect probe.
@@ -128,9 +131,42 @@ type GRPCResult struct {
 	Err       string // failure reason (dial/timeout/UNIMPLEMENTED/NotFound); "" on success
 }
 
+// TLSProbeRequest is a fully-resolved TLS probe (params already parsed/defaulted).
+type TLSProbeRequest struct {
+	Target     string        // host, IP, or DNS name
+	Port       int           // TLS port
+	ServerName string        // SNI + hostname to verify; "" = derived from Target
+	Timeout    time.Duration // whole-operation bound (dial + handshake)
+}
+
+// TLSResult is the outcome of a TLS handshake probe. Verdict composition
+// (success from verified/expired per insecureSkipVerify) happens in the method;
+// the prober reports raw facts. Capture-then-verify: the handshake itself never
+// fails on a bad chain, so cert facts are present even for expired/self-signed
+// certs, with Verified/VerifyError carrying the manual verification result.
+type TLSResult struct {
+	HandshakeComplete bool   // a TLS handshake completed (cert facts are meaningful)
+	Verified          bool   // chain + hostname verified against roots
+	VerifyError       string // why verification failed; "" when Verified
+	Expired           bool   // leaf cert past NotAfter
+	DaysUntilExpiry   int64  // floor(days until leaf NotAfter); negative if expired; 0 when no cert
+	NotAfter          string // leaf expiry, RFC3339; "" when no cert
+	Issuer            string // leaf issuer CN
+	Subject           string // leaf subject CN
+	DNSNames          string // comma-separated leaf SANs
+	TLSVersion        string // negotiated version, e.g. "TLS1.3"
+	LatencyMS         int64  // dial + handshake in ms; -1 on failure
+	Err               string // transport/handshake failure reason; "" otherwise
+}
+
 // LocalProber probes from the current process. Network reachability is governed by
 // NetworkPolicy, not RBAC.
-type LocalProber struct{}
+type LocalProber struct {
+	// RootCAs overrides the root pool ProbeTLS verifies against. nil = system
+	// roots. Set only by tests (verification against a test CA without touching
+	// system trust); production wiring passes the zero value.
+	RootCAs *x509.CertPool
+}
 
 func (LocalProber) ProbeTCP(ctx context.Context, target string, port int, timeout time.Duration) TCPResult {
 	d := net.Dialer{Timeout: timeout}
@@ -365,6 +401,69 @@ func (LocalProber) ProbeGRPC(ctx context.Context, req GRPCProbeRequest) GRPCResu
 		Status:    resp.GetStatus().String(), // SERVING / NOT_SERVING / UNKNOWN
 		LatencyMS: time.Since(start).Milliseconds(),
 	}
+}
+
+func (p LocalProber) ProbeTLS(ctx context.Context, req TLSProbeRequest) TLSResult {
+	ctx, cancel := context.WithTimeout(ctx, req.Timeout)
+	defer cancel()
+
+	// SNI: an explicit ServerName wins; otherwise the target hostname (Go omits
+	// SNI for IP literals, so leave it empty for an IP target).
+	sni := req.ServerName
+	if sni == "" && net.ParseIP(req.Target) == nil {
+		sni = req.Target
+	}
+	d := tls.Dialer{
+		NetDialer: &net.Dialer{Timeout: req.Timeout},
+		// Capture-then-verify: never fail the handshake on a bad chain, so cert
+		// facts (expiry, issuer) are reported even for expired/self-signed
+		// certs. Verification runs manually below against p.RootCAs.
+		Config: &tls.Config{InsecureSkipVerify: true, ServerName: sni}, // #nosec G402 -- deliberate, see comment
+	}
+	start := time.Now()
+	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(req.Target, strconv.Itoa(req.Port)))
+	if err != nil {
+		return TLSResult{LatencyMS: -1, Err: err.Error()}
+	}
+	latency := time.Since(start).Milliseconds()
+	state := conn.(*tls.Conn).ConnectionState()
+	_ = conn.Close()
+
+	res := TLSResult{
+		HandshakeComplete: true,
+		LatencyMS:         latency,
+		TLSVersion:        tls.VersionName(state.Version),
+	}
+	if len(state.PeerCertificates) == 0 {
+		res.VerifyError = "no peer certificate presented"
+		return res
+	}
+	leaf := state.PeerCertificates[0]
+	res.NotAfter = leaf.NotAfter.UTC().Format(time.RFC3339)
+	res.DaysUntilExpiry = int64(math.Floor(time.Until(leaf.NotAfter).Hours() / 24))
+	res.Expired = time.Now().After(leaf.NotAfter)
+	res.Issuer = leaf.Issuer.CommonName
+	res.Subject = leaf.Subject.CommonName
+	res.DNSNames = strings.Join(leaf.DNSNames, ",")
+
+	verifyName := req.ServerName
+	if verifyName == "" {
+		verifyName = req.Target // x509 hostname verification handles IP targets too
+	}
+	inter := x509.NewCertPool()
+	for _, c := range state.PeerCertificates[1:] {
+		inter.AddCert(c)
+	}
+	if _, err := leaf.Verify(x509.VerifyOptions{
+		Roots:         p.RootCAs, // nil = system roots
+		Intermediates: inter,
+		DNSName:       verifyName,
+	}); err != nil {
+		res.VerifyError = err.Error()
+		return res
+	}
+	res.Verified = true
+	return res
 }
 
 // embeddedEchoSeq extracts the ICMP Echo sequence number from the original

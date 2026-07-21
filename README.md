@@ -101,14 +101,14 @@ plain-language root cause and fix. Same steps, every time.
 
 ## Built-in methods
 
-kato ships **33 read-only checks** you compose into flows — pods, workloads, nodes,
+kato ships **35 read-only checks** you compose into flows — pods, workloads, nodes,
 networking, storage, batch, config, the control plane, plus listing/fan-out and
 active network probes:
 
 | Area | Methods |
 |---|---|
 | Pods | `check_pod_status`, `check_pod_logs`, `describe_pod`, `check_pod_resources`, `check_pod_usage` |
-| Workloads | `check_deployment_status`, `describe_deployment`, `check_replicaset`, `check_daemonset_status`, `describe_daemonset`, `check_statefulset_status`, `describe_statefulset`, `check_hpa` |
+| Workloads | `check_deployment_status`, `describe_deployment`, `check_replicaset`, `check_daemonset_status`, `describe_daemonset`, `check_statefulset_status`, `describe_statefulset`, `check_hpa`, `check_pdb` |
 | Nodes | `check_node_status`, `describe_node` |
 | Networking | `check_service_endpoints`, `describe_service`, `check_ingress` |
 | Storage | `check_pvc` |
@@ -116,7 +116,7 @@ active network probes:
 | Config & events | `check_configmap`, `check_events` |
 | Control plane | `check_apiserver` |
 | Listing / fan-out | `list_pods`, `list_failing_pods`, `list_nodes`, `list_node_pods` (drive `forEach` across a workload's or node's pods, or the node fleet) |
-| Active probes | `probe_tcp`, `probe_http`, `probe_dns`, `probe_traceroute`, `probe_grpc` (run from kato's pod; reachability governed by NetworkPolicy) |
+| Active probes | `probe_tcp`, `probe_http`, `probe_dns`, `probe_traceroute`, `probe_grpc`, `probe_tls` (run from kato's pod; reachability governed by NetworkPolicy) |
 
 Full reference and every output field: [`docs/METHOD.md`](https://github.com/zufardhiyaulhaq/kato/blob/main/docs/METHOD.md).
 Ready-made UseCases (general pod, deployment & node troubleshooting, cluster DNS, the Terway CNI, the istio-ingressgateway, control-plane health, and TCP/HTTP/gRPC connectivity checks)

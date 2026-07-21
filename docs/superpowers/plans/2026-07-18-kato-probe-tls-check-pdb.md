@@ -1,4 +1,5 @@
 # probe_tls + check_pdb Implementation Plan
+{% raw %}
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -1231,3 +1232,4 @@ git add examples/usecases/tls-certificate-check.yaml examples/usecases/deploymen
   docs/superpowers/specs/2026-07-18-kato-probe-tls-check-pdb-design.md
 git commit -m "docs: add probe_tls and check_pdb examples and docs"
 ```
+{% endraw %}

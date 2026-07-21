@@ -2,7 +2,14 @@ package methods
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/binary"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -346,5 +353,209 @@ func TestLocalProberGRPCConnRefused(t *testing.T) {
 	})
 	if res.Serving || res.Status != "" || res.Err == "" || res.LatencyMS != -1 {
 		t.Errorf("got %+v, want failure finding", res)
+	}
+}
+
+// --- ProbeTLS test helpers ---
+
+// testCA generates a throwaway CA and a pool containing it, so chain
+// verification is testable without touching system trust (the LocalProber
+// RootCAs seam).
+func testCA(t *testing.T) (*x509.Certificate, *ecdsa.PrivateKey, *x509.CertPool) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate CA key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "kato-test-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create CA cert: %v", err)
+	}
+	ca, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parse CA cert: %v", err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(ca)
+	return ca, key, pool
+}
+
+// testLeafCert creates a server cert for 127.0.0.1 + kato.test. Self-signed
+// when ca is nil, else signed by the CA. Validity is caller-controlled so an
+// expired cert is one call away.
+func testLeafCert(t *testing.T, ca *x509.Certificate, caKey *ecdsa.PrivateKey, notBefore, notAfter time.Time) tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate leaf key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "kato-test-leaf"},
+		NotBefore:    notBefore,
+		NotAfter:     notAfter,
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		DNSNames:     []string{"kato.test"},
+	}
+	parent, signKey := tmpl, key
+	if ca != nil {
+		parent, signKey = ca, caKey
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, &key.PublicKey, signKey)
+	if err != nil {
+		t.Fatalf("create leaf cert: %v", err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+}
+
+// startTLSListener serves cert on a loopback port, driving the server side of
+// each handshake, and returns the port.
+func startTLSListener(t *testing.T, cert tls.Certificate) int {
+	t.Helper()
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{cert}})
+	if err != nil {
+		t.Fatalf("tls listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				if tc, ok := c.(*tls.Conn); ok {
+					_ = tc.Handshake()
+				}
+				_ = c.Close()
+			}(c)
+		}
+	}()
+	return ln.Addr().(*net.TCPAddr).Port
+}
+
+func TestLocalProberTLSVerified(t *testing.T) {
+	ca, caKey, pool := testCA(t)
+	cert := testLeafCert(t, ca, caKey, time.Now().Add(-time.Hour), time.Now().Add(90*24*time.Hour))
+	port := startTLSListener(t, cert)
+
+	res := LocalProber{RootCAs: pool}.ProbeTLS(context.Background(), TLSProbeRequest{
+		Target: "127.0.0.1", Port: port, Timeout: 3 * time.Second,
+	})
+	if !res.HandshakeComplete || !res.Verified {
+		t.Fatalf("want verified handshake, got %+v", res)
+	}
+	if res.Expired || res.DaysUntilExpiry < 88 || res.DaysUntilExpiry > 90 || res.NotAfter == "" || res.TLSVersion == "" {
+		t.Fatalf("bad cert facts: %+v", res)
+	}
+	if res.Subject != "kato-test-leaf" || res.Issuer != "kato-test-ca" || res.DNSNames != "kato.test" {
+		t.Fatalf("bad identity facts: %+v", res)
+	}
+	if res.LatencyMS < 0 || res.Err != "" || res.VerifyError != "" {
+		t.Fatalf("unexpected error fields: %+v", res)
+	}
+}
+
+func TestLocalProberTLSSelfSignedIsUnverifiedFinding(t *testing.T) {
+	cert := testLeafCert(t, nil, nil, time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour))
+	port := startTLSListener(t, cert)
+
+	// Zero-value LocalProber = system roots; a throwaway self-signed cert can
+	// never verify against them, deterministically on any machine.
+	res := LocalProber{}.ProbeTLS(context.Background(), TLSProbeRequest{
+		Target: "127.0.0.1", Port: port, Timeout: 3 * time.Second,
+	})
+	if !res.HandshakeComplete {
+		t.Fatalf("capture-then-verify: handshake must complete for a self-signed cert, got %+v", res)
+	}
+	if res.Verified || res.VerifyError == "" {
+		t.Fatalf("want Verified=false with VerifyError set, got %+v", res)
+	}
+	if res.NotAfter == "" || res.Subject != "kato-test-leaf" {
+		t.Fatalf("cert facts must be present despite failed verification: %+v", res)
+	}
+}
+
+func TestLocalProberTLSExpired(t *testing.T) {
+	ca, caKey, pool := testCA(t)
+	cert := testLeafCert(t, ca, caKey, time.Now().Add(-72*time.Hour), time.Now().Add(-48*time.Hour))
+	port := startTLSListener(t, cert)
+
+	res := LocalProber{RootCAs: pool}.ProbeTLS(context.Background(), TLSProbeRequest{
+		Target: "127.0.0.1", Port: port, Timeout: 3 * time.Second,
+	})
+	if !res.HandshakeComplete {
+		t.Fatalf("handshake must tolerate an expired cert (verification is manual), got %+v", res)
+	}
+	if !res.Expired || res.DaysUntilExpiry >= 0 {
+		t.Fatalf("want Expired=true with negative DaysUntilExpiry, got %+v", res)
+	}
+	if res.Verified {
+		t.Fatalf("an expired cert must fail chain verification, got %+v", res)
+	}
+}
+
+func TestLocalProberTLSNameMismatch(t *testing.T) {
+	ca, caKey, pool := testCA(t)
+	cert := testLeafCert(t, ca, caKey, time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour))
+	port := startTLSListener(t, cert)
+
+	res := LocalProber{RootCAs: pool}.ProbeTLS(context.Background(), TLSProbeRequest{
+		Target: "127.0.0.1", Port: port, ServerName: "wrong.test", Timeout: 3 * time.Second,
+	})
+	if !res.HandshakeComplete || res.Verified || res.VerifyError == "" {
+		t.Fatalf("want handshake OK but name-mismatch verify failure, got %+v", res)
+	}
+}
+
+func TestLocalProberTLSNotATLSEndpoint(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close() // immediate close -> client handshake fails fast
+		}
+	}()
+
+	res := LocalProber{}.ProbeTLS(context.Background(), TLSProbeRequest{
+		Target: "127.0.0.1", Port: ln.Addr().(*net.TCPAddr).Port, Timeout: 2 * time.Second,
+	})
+	if res.HandshakeComplete || res.Err == "" || res.LatencyMS != -1 {
+		t.Fatalf("want handshake failure with Err set and LatencyMS=-1, got %+v", res)
+	}
+}
+
+func TestLocalProberTLSClosedPort(t *testing.T) {
+	// Reserve a port, then close it so the dial is refused.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+
+	res := LocalProber{}.ProbeTLS(context.Background(), TLSProbeRequest{
+		Target: "127.0.0.1", Port: port, Timeout: 2 * time.Second,
+	})
+	if res.HandshakeComplete || res.Err == "" {
+		t.Fatalf("want dial failure, got %+v", res)
 	}
 }

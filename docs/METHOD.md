@@ -17,6 +17,10 @@ runtime.
   guaranteed present with a defined default (e.g. `""`, `0`, `false`, `-1`) —
   a `when` condition never breaks on missing data.
 - **Required** inputs must be supplied; **optional** inputs may be omitted.
+- A `UseCase` **input** may declare a `default`, used when the caller omits it —
+  so a defaulted input need not be `required`, and any input referenced by a
+  step's `with` resolves cleanly when omitted. An empty default means no default
+  (you cannot default to the empty string).
 - All inputs and outputs are strings on the wire; numeric/boolean inputs (e.g.
   `previous`, `tailLines`) are passed as strings and parsed by the method.
 - Large string outputs (e.g. `logs`, `manifest`) are truncated head+tail when
@@ -50,6 +54,7 @@ runtime.
 | [`check_statefulset_status`](#check_statefulset_status) | StatefulSet replica counts and rollout state |
 | [`describe_statefulset`](#describe_statefulset) | Sanitized statefulset manifest + structured fields (serviceName, partition, volumeClaimTemplates) |
 | [`check_hpa`](#check_hpa) | HPA replica bounds, current scale, metrics, and scaling conditions |
+| [`check_pdb`](#check_pdb) | PodDisruptionBudget state — does it currently permit voluntary disruption (evictions/drains)? |
 | [`check_service_endpoints`](#check_service_endpoints) | Does the service selector match ready endpoints? |
 | [`describe_service`](#describe_service) | Sanitized service manifest |
 | [`check_ingress`](#check_ingress) | Ingress rules, backend service existence, LB status |
@@ -67,6 +72,7 @@ runtime.
 | [`probe_dns`](#probe_dns) | Active DNS resolution check — does a name resolve to an address? |
 | [`probe_traceroute`](#probe_traceroute) | Active ICMP traceroute — is the destination reachable, how many hops away, and where does the path stop? — also produces list output `hops` |
 | [`probe_grpc`](#probe_grpc) | Active gRPC health check — is `target:port` SERVING (`grpc.health.v1.Health/Check`)? |
+| [`probe_tls`](#probe_tls) | Active TLS handshake — is the chain valid and when does the certificate expire? |
 
 ---
 
@@ -536,6 +542,43 @@ HorizontalPodAutoscaler replica bounds, current scale, metrics, and scaling cond
 | `scalingLimited` | bool | `ScalingLimited` condition is True (held at a min/max bound) |
 | `metrics` | string | per-metric current vs target, one line each: `<name>: cur=<v> target=<v>` |
 | `conditionReason` | string | reason/message when scaling is limited or unable to scale, `""` otherwise |
+
+---
+
+### `check_pdb`
+
+PodDisruptionBudget state. A missing PDB is reported as `exists: false` (not an
+error), so existence is itself a usable finding ("no PDB — drains evict freely").
+
+> A PDB gates **evictions** — `kubectl drain`, node-pool upgrades, the
+> descheduler — not rolling updates. `blocked: true` explains "the drain hangs",
+> not "the rollout hangs".
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `namespace` | yes | PDB namespace |
+| `name` | yes | PDB name |
+
+**Outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `exists` | bool | PDB exists |
+| `minAvailable` | string | `spec.minAvailable` (int-or-percent, e.g. `2`, `50%`), `""` if unset |
+| `maxUnavailable` | string | `spec.maxUnavailable` (int-or-percent), `""` if unset |
+| `selector` | string | `spec.selector` matchLabels, `""` if none |
+| `expectedPods` | int | `status.expectedPods` |
+| `currentHealthy` | int | `status.currentHealthy` |
+| `desiredHealthy` | int | `status.desiredHealthy` |
+| `disruptionsAllowed` | int | `status.disruptionsAllowed` |
+| `blocked` | bool | `disruptionsAllowed == 0` — no voluntary disruption possible right now |
+| `conditionReason` | string | reason of the `DisruptionAllowed` condition when False (e.g. `InsufficientPods`), `""` otherwise |
+
+`blocked` + `conditionReason: InsufficientPods` means "fix the unready pods before
+draining"; `blocked` with a healthy workload means the budget itself is too tight
+(compare `minAvailable`/`maxUnavailable` against `expectedPods`).
 
 ---
 
@@ -1157,5 +1200,63 @@ Pair with `probe_tcp`: gate `probe_grpc` on `$(steps.<tcp>.success)` so the heal
 when the port is open, separating "network path broken" from "service unhealthy". `status` is the
 gRPC analog of `probe_http`'s `statusCode`: a non-empty `status` means the endpoint answered
 (reachable), while `success` is specifically `SERVING`.
+
+---
+
+### `probe_tls`
+
+Active TLS handshake from kato's pod with **capture-then-verify** semantics: the
+handshake itself never fails on a bad chain (verification is disabled at handshake
+time), so certificate facts — expiry, issuer, subject, SANs — are reported even for
+an expired, self-signed, or name-mismatched certificate; chain + hostname
+verification then runs manually and its outcome is reported separately. This closes
+the certificate-expiry outage class that `probe_http` cannot see (it either fails
+opaquely on a bad cert or ignores it entirely).
+
+`success` means "TLS is healthy here": `handshakeComplete && verified`. With
+`insecureSkipVerify: "true"` (for services using an internal CA that can never
+verify against system roots) the verdict relaxes to `handshakeComplete && !expired`
+— chain verification is excluded from the verdict but still reported via
+`verified`/`verifyError`, and an expired certificate still fails it. There is no
+expiry-threshold param: gate with CEL, e.g.
+`when: $(steps.tls.daysUntilExpiry) < 30`.
+
+A failed handshake, invalid chain, or expired certificate is a finding
+(`success: false`), never a method error. Runs from kato's pod; reachability is
+governed by NetworkPolicy (no Kubernetes RBAC needed). Covers any TLS endpoint,
+not just HTTPS (databases, message brokers, gRPC).
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `target` | yes | host, IP, or DNS name |
+| `port` | yes | TLS port (1–65535) |
+| `serverName` | no | SNI + hostname to verify; empty = derived from `target` |
+| `insecureSkipVerify` | no | `"true"` to exclude chain/name verification from `success` (expiry still counts; default `"false"`) |
+| `timeout` | no | whole-operation timeout as a Go duration (default `5s`) |
+
+**Scalar outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `success` | bool | `handshakeComplete && verified`; with `insecureSkipVerify`: `handshakeComplete && !expired` |
+| `handshakeComplete` | bool | a TLS handshake completed (cert facts are meaningful) |
+| `verified` | bool | chain + hostname verified against system roots |
+| `expired` | bool | leaf cert past `notAfter` |
+| `daysUntilExpiry` | int | days until leaf `notAfter` (floor); **negative if expired**; gate on `handshakeComplete` |
+| `notAfter` | string | leaf expiry, RFC3339; `""` if no cert obtained |
+| `issuer` | string | leaf issuer CN |
+| `subject` | string | leaf subject CN |
+| `dnsNames` | string | comma-separated leaf SANs |
+| `tlsVersion` | string | negotiated version, e.g. `TLS1.3` |
+| `verifyError` | string | why chain verification failed; `""` when verified |
+| `latencyMs` | int | dial + handshake in ms; `-1` on failure |
+| `error` | string | transport/handshake failure reason; `""` otherwise |
+
+Pair with `probe_tcp`: gate `probe_tls` on `$(steps.<tcp>.success)` so the handshake
+runs only when the port is open, separating "unreachable" from "bad certificate".
+`handshakeComplete` is the reachable-and-speaks-TLS signal; `verified`/`expired`
+say what is wrong with the certificate; `daysUntilExpiry` powers renewal warnings.
 
 ---
