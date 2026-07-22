@@ -1260,3 +1260,15 @@ runs only when the port is open, separating "unreachable" from "bad certificate"
 say what is wrong with the certificate; `daysUntilExpiry` powers renewal warnings.
 
 ---
+
+## Running a method directly
+
+`POST /api/v1/methods/{name}/run` executes one method ad hoc, outside any
+UseCase — body `{"params": {...}}` (all string values; body optional for
+zero-param methods), response `{"outcome": "completed|failed", "outputs": {...},
+"error": "..."}`. It is stateless: no Run is persisted and no LLM summary is
+produced. All declared outputs are returned — scalars plus list outputs as
+arrays. A method-level failure (pod not found, probe refused) returns 200 with
+`outcome: "failed"`; 400/404/429 are reserved for bad params, unknown methods,
+and the `KATO_METHOD_MAX_CONCURRENT` cap (default 10, independent of
+`KATO_MAX_CONCURRENT`). Calls are bounded by `KATO_STEP_TIMEOUT`.

@@ -15,7 +15,12 @@ type Config struct {
 	StepTimeout   time.Duration
 	RunTTL        time.Duration
 	MaxConcurrent int
-	GCInterval    time.Duration
+	// MethodMaxConcurrent bounds concurrent direct method runs
+	// (POST /api/v1/methods/{name}/run); independent of MaxConcurrent so
+	// cheap exploratory method calls and long UseCase runs cannot starve
+	// each other.
+	MethodMaxConcurrent int
+	GCInterval          time.Duration
 	// RunReconcileConcurrency bounds concurrent execution of externally-created
 	// Runs (MaxConcurrentReconciles); separate from the API's MaxConcurrent.
 	RunReconcileConcurrency int
@@ -30,12 +35,13 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		Namespace:     getEnv("KATO_NAMESPACE", "kato"),
-		ListenAddr:    getEnv("KATO_LISTEN_ADDR", ":8080"),
-		StepTimeout:   getDuration("KATO_STEP_TIMEOUT", 30*time.Second),
-		RunTTL:        getDuration("KATO_RUN_TTL", 7*24*time.Hour),
-		MaxConcurrent: getInt("KATO_MAX_CONCURRENT", 10),
-		GCInterval:    getDuration("KATO_GC_INTERVAL", time.Hour),
+		Namespace:           getEnv("KATO_NAMESPACE", "kato"),
+		ListenAddr:          getEnv("KATO_LISTEN_ADDR", ":8080"),
+		StepTimeout:         getDuration("KATO_STEP_TIMEOUT", 30*time.Second),
+		RunTTL:              getDuration("KATO_RUN_TTL", 7*24*time.Hour),
+		MaxConcurrent:       getInt("KATO_MAX_CONCURRENT", 10),
+		MethodMaxConcurrent: getInt("KATO_METHOD_MAX_CONCURRENT", 10),
+		GCInterval:          getDuration("KATO_GC_INTERVAL", time.Hour),
 
 		RunReconcileConcurrency: getInt("KATO_RUN_RECONCILE_CONCURRENCY", 2),
 		RunMaxDuration:          getDuration("KATO_RUN_MAX_DURATION", time.Hour),

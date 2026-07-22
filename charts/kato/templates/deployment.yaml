@@ -33,6 +33,8 @@ spec:
               value: {{ .Values.config.runTTL | quote }}
             - name: KATO_MAX_CONCURRENT
               value: {{ .Values.config.maxConcurrent | quote }}
+            - name: KATO_METHOD_MAX_CONCURRENT
+              value: {{ .Values.config.methodMaxConcurrent | quote }}
             - name: KATO_GC_INTERVAL
               value: {{ .Values.config.gcInterval | quote }}
             - name: KATO_RUN_RECONCILE_CONCURRENCY

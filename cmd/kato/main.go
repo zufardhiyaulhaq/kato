@@ -113,8 +113,9 @@ func run() error {
 		Log:              func(msg string, kv ...any) { log.Info(msg, kv...) },
 		DebugLog:         func(msg string, kv ...any) { log.V(1).Info(msg, kv...) },
 	}
+	deps := methods.Deps{Kube: kubeClient, Metrics: metricsClient, Prober: methods.LocalProber{}}
 	eng := &engine.Engine{
-		Deps:      methods.Deps{Kube: kubeClient, Metrics: metricsClient, Prober: methods.LocalProber{}},
+		Deps:      deps,
 		Registry:  reg,
 		Summarize: sum.Summarize, StepTimeout: cfg.StepTimeout,
 	}
@@ -132,6 +133,9 @@ func run() error {
 	srv := &server.Server{
 		UseCases: ucCache, Runs: st, Execute: eng.Execute,
 		Registry: reg, MaxConcurrent: cfg.MaxConcurrent,
+		Deps: deps, StepTimeout: cfg.StepTimeout,
+		MethodMaxConcurrent: cfg.MethodMaxConcurrent,
+		Log:                 func(msg string, kv ...any) { log.Info(msg, kv...) },
 	}
 	httpServer := &http.Server{Addr: cfg.ListenAddr, Handler: srv.Handler()}
 

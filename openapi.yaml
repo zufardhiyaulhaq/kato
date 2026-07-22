@@ -301,6 +301,64 @@ paths:
                             type: bool
                             description: container Ready
 
+  /api/v1/methods/{name}/run:
+    post:
+      tags: [methods]
+      summary: Execute one built-in method directly
+      description: |
+        Runs a single method with the given params and returns its outputs.
+        Stateless: no Run is persisted and no LLM summary is produced. A
+        method-level failure (e.g. pod not found, probe refused) is a
+        legitimate finding and returns 200 with outcome "failed"; HTTP error
+        statuses are reserved for caller mistakes. Bounded by
+        KATO_STEP_TIMEOUT; concurrency-capped by KATO_METHOD_MAX_CONCURRENT
+        (429 when full), independent of the UseCase run cap.
+      operationId: runMethod
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The method's registered name.
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MethodRunRequest'
+      responses:
+        '200':
+          description: Method executed (outcome may be completed or failed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MethodRunResponse'
+        '400':
+          description: Invalid JSON, missing required param, or unknown param
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Unknown method
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too many concurrent method runs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/v1/runs:
     get:
       tags: [runs]
@@ -504,6 +562,33 @@ components:
           description: List outputs, omitted when the method produces none.
           items:
             $ref: '#/components/schemas/ListOutputView'
+
+    MethodRunRequest:
+      type: object
+      properties:
+        params:
+          type: object
+          additionalProperties:
+            type: string
+          description: Method params; all values are strings. Omitted = no params.
+
+    MethodRunResponse:
+      type: object
+      required: [outcome, outputs]
+      properties:
+        outcome:
+          type: string
+          enum: [completed, failed]
+        outputs:
+          type: object
+          description: >
+            All of the method's outputs: scalars (string/int/bool) plus each
+            declared list output as an array of item records. Empty object
+            when the method failed. Keys are lowercase (this view does not
+            inherit StepResult's capitalized-key wart).
+        error:
+          type: string
+          description: Present only when outcome is "failed".
 
     RunRequest:
       type: object

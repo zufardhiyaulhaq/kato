@@ -164,6 +164,7 @@ helm install my-kato kato/kato --values values.yaml
 |-----|------|---------|-------------|
 | config.gcInterval | string | `"1h"` |  |
 | config.maxConcurrent | int | `10` |  |
+| config.methodMaxConcurrent | int | `10` |  |
 | config.runMaxDuration | string | `"1h"` |  |
 | config.runReconcileConcurrency | int | `2` |  |
 | config.runTTL | string | `"168h"` |  |

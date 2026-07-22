@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -40,7 +42,20 @@ type Server struct {
 	MaxConcurrent int
 	Clock         func() time.Time
 
-	sem chan struct{}
+	// Deps and StepTimeout serve direct method runs (POST /api/v1/methods/{name}/run):
+	// the same method dependencies and per-call timeout the engine uses for steps.
+	Deps        methods.Deps
+	StepTimeout time.Duration
+	// MethodMaxConcurrent bounds in-flight direct method runs, independent of
+	// MaxConcurrent (which caps UseCase runs).
+	MethodMaxConcurrent int
+
+	// Log, when set, receives one line per direct method run (the endpoint's
+	// only observability hook — runs are otherwise stateless). Nil disables.
+	Log func(msg string, kv ...any)
+
+	sem       chan struct{}
+	methodSem chan struct{}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -50,6 +65,9 @@ func (s *Server) Handler() http.Handler {
 	if s.sem == nil {
 		s.sem = make(chan struct{}, max(s.MaxConcurrent, 0))
 	}
+	if s.methodSem == nil {
+		s.methodSem = make(chan struct{}, max(s.MethodMaxConcurrent, 0))
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
@@ -57,6 +75,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/usecases/{name}", s.getUseCase)
 	mux.HandleFunc("POST /api/v1/usecases/{name}/run", s.runUseCase)
 	mux.HandleFunc("GET /api/v1/methods", s.listMethods)
+	mux.HandleFunc("POST /api/v1/methods/{name}/run", s.runMethod)
 	mux.HandleFunc("GET /api/v1/runs", s.listRuns)
 	mux.HandleFunc("GET /api/v1/runs/{name}", s.getRun)
 	return mux
@@ -144,6 +163,73 @@ func (s *Server) listMethods(w http.ResponseWriter, _ *http.Request) {
 		views = append(views, mv)
 	}
 	writeJSON(w, 200, map[string]any{"methods": views})
+}
+
+type methodRunRequest struct {
+	Params map[string]string `json:"params"`
+}
+
+// methodRunResponse is the direct-method-run view. Deliberately lowercase keys
+// (unlike engine.StepResult): a new endpoint should not inherit that wart.
+type methodRunResponse struct {
+	Outcome string          `json:"outcome"` // "completed" | "failed"
+	Outputs methods.Outputs `json:"outputs"` // scalars + list outputs as arrays
+	Error   string          `json:"error,omitempty"`
+}
+
+// runMethod executes one method directly: stateless — no Run CRD, no LLM.
+// A method-level failure is a finding (200 + outcome "failed"); HTTP errors
+// are reserved for caller mistakes.
+func (s *Server) runMethod(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	m, ok := s.Registry.Get(name)
+	if !ok {
+		writeErr(w, http.StatusNotFound, fmt.Sprintf("unknown method %q", name))
+		return
+	}
+
+	// Body is optional: zero-param methods are common, so EOF means no params.
+	var req methodRunRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if req.Params == nil {
+		req.Params = map[string]string{}
+	}
+	if err := methods.ValidateParams(m, req.Params); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Dedicated limiter (never the usecase sem): non-blocking acquire.
+	select {
+	case s.methodSem <- struct{}{}:
+		defer func() { <-s.methodSem }()
+	default:
+		writeErr(w, http.StatusTooManyRequests, "too many concurrent method runs")
+		return
+	}
+
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(r.Context(), s.StepTimeout)
+	defer cancel()
+	outputs, err := m.Run(ctx, s.Deps, req.Params)
+
+	var resp methodRunResponse
+	if err != nil {
+		resp = methodRunResponse{Outcome: "failed", Outputs: methods.Outputs{}, Error: err.Error()}
+	} else {
+		if outputs == nil {
+			outputs = methods.Outputs{}
+		}
+		resp = methodRunResponse{Outcome: "completed", Outputs: outputs}
+	}
+
+	if s.Log != nil {
+		s.Log("method run", "method", name, "outcome", resp.Outcome, "duration", time.Since(start).String())
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 type runRequest struct {

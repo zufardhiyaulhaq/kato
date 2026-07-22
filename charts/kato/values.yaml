@@ -15,6 +15,9 @@ config:
   stepTimeout: 30s
   runTTL: 168h        # 7 days
   maxConcurrent: 10
+  # Max in-flight direct method runs (POST /api/v1/methods/{name}/run); 429 when
+  # full. Independent of maxConcurrent, which bounds the UseCase run path.
+  methodMaxConcurrent: 10
   gcInterval: 1h
   # Concurrent execution of externally-created (kubectl/GitOps) Run CRs; separate
   # from maxConcurrent, which bounds the REST API path.
