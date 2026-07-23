@@ -88,7 +88,6 @@ added by the method itself.
 `internal/methods/prober.go` grows one method and two types. `LocalProber` (the only
 production implementation) and the test `fakeProber` both implement it.
 
-{% raw %}
 ```go
 type Prober interface {
     ProbeTCP(ctx context.Context, target string, port int, timeout time.Duration) TCPResult
@@ -117,11 +116,9 @@ type GRPCResult struct {
     Err       string // failure reason (dial/timeout/UNIMPLEMENTED); "" on success
 }
 ```
-{% endraw %}
 
 ### `LocalProber.ProbeGRPC`
 
-{% raw %}
 ```go
 func (LocalProber) ProbeGRPC(ctx context.Context, req GRPCProbeRequest) GRPCResult {
     ctx, cancel := context.WithTimeout(ctx, req.Timeout)
@@ -160,7 +157,6 @@ func (LocalProber) ProbeGRPC(ctx context.Context, req GRPCProbeRequest) GRPCResu
     }
 }
 ```
-{% endraw %}
 
 - `grpc.NewClient` is lazy — it does not connect until the first RPC — so the `Check` call is
   what actually forces the dial, and a connection failure surfaces as the RPC error. The
@@ -204,7 +200,6 @@ was reachable and answered the health RPC, while `success` is specifically `SERV
 
 **Run**
 
-{% raw %}
 ```go
 func (probeGRPC) Run(ctx context.Context, deps Deps, params map[string]string) (Outputs, error) {
     if params["target"] == "" {
@@ -251,7 +246,6 @@ func (probeGRPC) Run(ctx context.Context, deps Deps, params map[string]string) (
     }, nil
 }
 ```
-{% endraw %}
 
 ---
 
