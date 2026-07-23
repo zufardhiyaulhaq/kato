@@ -466,6 +466,11 @@ components:
           type: boolean
           default: false
           description: Omitted in JSON when false.
+        default:
+          type: string
+          description: >
+            Used when the caller omits this input. Omitted in JSON when empty
+            (empty = no default). A default satisfies required.
 
     UseCaseView:
       type: object
