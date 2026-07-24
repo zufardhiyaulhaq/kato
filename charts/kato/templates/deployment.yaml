@@ -12,8 +12,17 @@ spec:
       app.kubernetes.io/name: kato
   template:
     metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- range $k, $v := . }}
+        {{ $k }}: {{ $v | quote }}
+        {{- end }}
+      {{- end }}
       labels:
         {{- include "kato.labels" . | nindent 8 }}
+        {{- range $k, $v := .Values.podLabels }}
+        {{ $k }}: {{ $v | quote }}
+        {{- end }}
     spec:
       serviceAccountName: {{ include "kato.name" . }}
       containers:

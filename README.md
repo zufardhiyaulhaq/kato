@@ -180,6 +180,8 @@ helm install my-kato kato/kato --values values.yaml
 | modelConfig.model | string | `"gpt-4o-mini"` |  |
 | modelConfig.name | string | `"default"` |  |
 | modelConfig.temperature | string | `"0"` |  |
+| podAnnotations | object | `{}` |  |
+| podLabels | object | `{}` |  |
 | replicaCount | int | `1` |  |
 | resources.limits.cpu | string | `"500m"` |  |
 | resources.limits.memory | string | `"256Mi"` |  |

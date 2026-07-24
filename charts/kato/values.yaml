@@ -27,6 +27,20 @@ config:
   # crash), so keep it comfortably above your longest expected run.
   runMaxDuration: 1h
 
+# Extra labels/annotations on the POD template only (not the Deployment or the
+# other chart objects). This is where sidecar-injection selectors go, since the
+# injection webhook reads the pod's labels:
+#   podLabels:
+#     istio.io/rev: default          # revision-based injection
+# or, for the default (non-revisioned) webhook:
+#   podLabels:
+#     sidecar.istio.io/inject: "true"
+#
+#   podAnnotations:
+#     traffic.sidecar.istio.io/includeOutboundPorts: "16080,16081"
+podLabels: {}
+podAnnotations: {}
+
 service:
   type: ClusterIP
   port: 8080
