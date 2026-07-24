@@ -121,8 +121,9 @@ spec:
                       - failed
                       type: string
                     outputs:
-                      description: Outputs holds all declared outputs of the step
-                        (unfiltered).
+                      description: |-
+                        Outputs holds the step's outputs, limited to its summaryFilter when one is
+                        set (all declared outputs if no filter is set).
                       x-kubernetes-preserve-unknown-fields: true
                     reason:
                       description: Reason explains skipped/failed outcomes.
