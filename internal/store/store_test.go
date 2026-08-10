@@ -223,6 +223,27 @@ func TestSaveRunSetsManagedByLabel(t *testing.T) {
 	}
 }
 
+func TestBuildRunStatusCarriesVerdict(t *testing.T) {
+	healthy := false
+	res := engine.Result{
+		Phase:    engine.PhaseSucceeded,
+		Summary:  "pods crashing",
+		Healthy:  &healthy,
+		Headline: "CrashLoopBackOff",
+	}
+	now := time.Now()
+	st, err := BuildRunStatus(res, now, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if st.Healthy == nil || *st.Healthy != false {
+		t.Errorf("Healthy = %v, want false", st.Healthy)
+	}
+	if st.Headline != "CrashLoopBackOff" {
+		t.Errorf("Headline = %q, want CrashLoopBackOff", st.Headline)
+	}
+}
+
 func TestReapStuckRunsFailsOnlyStale(t *testing.T) {
 	now := time.Unix(10000, 0)
 	stuck := &v1alpha1.Run{

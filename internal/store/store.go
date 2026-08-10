@@ -91,6 +91,8 @@ func BuildRunStatus(res engine.Result, startedAt, completedAt time.Time) (v1alph
 		CompletedAt: &completed,
 		Steps:       steps,
 		Summary:     res.Summary,
+		Healthy:     res.Healthy,
+		Headline:    res.Headline,
 		Warning:     res.Warning,
 		ModelConfig: res.ModelConfig,
 	}, nil

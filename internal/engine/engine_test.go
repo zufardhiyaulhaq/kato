@@ -46,8 +46,8 @@ func newEngine(client *fake.Clientset, summarize SummarizeFn) *Engine {
 }
 
 func okSummarizer(summary string) SummarizeFn {
-	return func(_ context.Context, _ *v1alpha1.UseCase, _ []StepResult) (string, string, error) {
-		return summary, "test-model", nil
+	return func(_ context.Context, _ *v1alpha1.UseCase, _ []StepResult) (SummaryOutput, error) {
+		return SummaryOutput{Summary: summary, ModelConfig: "test-model"}, nil
 	}
 }
 
@@ -132,8 +132,8 @@ func TestExecutePartialSuccess(t *testing.T) {
 func TestExecuteSummarizerDownIsWarningNotFailure(t *testing.T) {
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-7"}}
 	client := fake.NewSimpleClientset(crashloopPodForEngine(), node)
-	down := func(_ context.Context, _ *v1alpha1.UseCase, _ []StepResult) (string, string, error) {
-		return "", "", errors.New("connection refused")
+	down := func(_ context.Context, _ *v1alpha1.UseCase, _ []StepResult) (SummaryOutput, error) {
+		return SummaryOutput{}, errors.New("connection refused")
 	}
 	res, err := newEngine(client, down).
 		Execute(context.Background(), engineUseCase(), map[string]string{"namespace": "payments", "pod": "app-1"})

@@ -52,6 +52,14 @@ type RunStatus struct {
 	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
 	Steps       []RunStep    `json:"steps,omitempty"`
 	Summary     string       `json:"summary,omitempty"`
+	// Healthy is the summarizer's verdict on the subject of the run: true =
+	// healthy, false = unhealthy, nil = unknown (no verdict emitted, or the
+	// summary itself failed). Advisory — it never affects Phase.
+	Healthy *bool `json:"healthy,omitempty"`
+	// Headline is a short reason accompanying Healthy (e.g.
+	// "CrashLoopBackOff — bad image tag :v2"). Single line, never longer than
+	// 120 characters (kato truncates). Empty when unknown.
+	Headline string `json:"headline,omitempty"`
 	// Note records a reconciler-level message: a validation failure reason for an
 	// externally-created Run, or the reap note when a stuck Running Run is failed.
 	Note string `json:"note,omitempty"`

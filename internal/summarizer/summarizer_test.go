@@ -10,9 +10,12 @@ import (
 	"github.com/zufardhiyaulhaq/kato/internal/methods"
 )
 
-type fakeCompleter struct{}
+type fakeCompleter struct{ out string }
 
-func (fakeCompleter) Complete(ctx context.Context, system, user string) (string, error) {
+func (f fakeCompleter) Complete(ctx context.Context, system, user string) (string, error) {
+	if f.out != "" {
+		return f.out, nil
+	}
 	return "diagnosis", nil
 }
 
@@ -37,7 +40,7 @@ func TestSummarizeDebugLogDumpsFullRequest(t *testing.T) {
 			}
 		},
 	}
-	if _, _, err := s.Summarize(context.Background(), uc, steps); err != nil {
+	if _, err := s.Summarize(context.Background(), uc, steps); err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
 	if !called {
@@ -56,7 +59,7 @@ func TestSummarizeWithoutDebugLogIsNoop(t *testing.T) {
 		Summary: v1alpha1.SummarySpec{Prompt: "x"},
 	}}
 	s := &Summarizer{Resolve: func(*v1alpha1.UseCase) (Completer, string, error) { return fakeCompleter{}, "m", nil }}
-	if _, _, err := s.Summarize(context.Background(), uc, nil); err != nil {
+	if _, err := s.Summarize(context.Background(), uc, nil); err != nil {
 		t.Fatalf("Summarize without DebugLog should not error: %v", err)
 	}
 }
@@ -141,4 +144,56 @@ func TestBuildEvidenceRendersIterations(t *testing.T) {
 	if !strings.Contains(ev, "logs unavailable") {
 		t.Error("failed iteration error missing")
 	}
+}
+
+func TestSummarizeReturnsVerdict(t *testing.T) {
+	s := &Summarizer{
+		Resolve: func(uc *v1alpha1.UseCase) (Completer, string, error) {
+			return fakeCompleter{out: "VERDICT: unhealthy — pods crashlooping\n\nThe pods are crashing."}, "gpt-test", nil
+		},
+	}
+	uc := &v1alpha1.UseCase{}
+	uc.Name = "demo"
+	uc.Spec.Summary.Prompt = "diagnose it"
+
+	out, err := s.Summarize(context.Background(), uc, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.Healthy == nil || *out.Healthy != false {
+		t.Errorf("Healthy = %v, want false", out.Healthy)
+	}
+	if out.Headline != "pods crashlooping" {
+		t.Errorf("Headline = %q, want %q", out.Headline, "pods crashlooping")
+	}
+	if out.Summary != "The pods are crashing." {
+		t.Errorf("Summary = %q, want prose without the verdict line", out.Summary)
+	}
+	if out.ModelConfig != "gpt-test" {
+		t.Errorf("ModelConfig = %q, want gpt-test", out.ModelConfig)
+	}
+}
+
+func TestSummarizeAppendsVerdictInstruction(t *testing.T) {
+	var gotSystem string
+	s := &Summarizer{
+		Resolve: func(uc *v1alpha1.UseCase) (Completer, string, error) {
+			return systemCapturingCompleter{capture: &gotSystem}, "m", nil
+		},
+	}
+	uc := &v1alpha1.UseCase{}
+	uc.Spec.Summary.Prompt = "x"
+	if _, err := s.Summarize(context.Background(), uc, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(gotSystem, "VERDICT:") {
+		t.Errorf("system prompt should carry the verdict instruction, got %q", gotSystem)
+	}
+}
+
+type systemCapturingCompleter struct{ capture *string }
+
+func (c systemCapturingCompleter) Complete(ctx context.Context, system, user string) (string, error) {
+	*c.capture = system
+	return "VERDICT: healthy — ok\n\nfine", nil
 }

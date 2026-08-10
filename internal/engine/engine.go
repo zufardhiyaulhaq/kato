@@ -49,13 +49,24 @@ type Result struct {
 	Phase       string
 	Steps       []StepResult
 	Summary     string
+	Healthy     *bool  // health verdict; nil = unknown. Advisory, never affects Phase.
+	Headline    string // one-line reason accompanying Healthy; empty when unknown.
 	Warning     string // set when summary could not be produced
 	ModelConfig string
 }
 
-// SummarizeFn produces (summary, modelConfigName, error) from completed step
-// results. The summarizer applies each step's summaryFilter itself.
-type SummarizeFn func(ctx context.Context, uc *v1alpha1.UseCase, steps []StepResult) (string, string, error)
+// SummaryOutput is what a summarizer returns: the prose plus the structured
+// health verdict parsed from it.
+type SummaryOutput struct {
+	Summary     string
+	Healthy     *bool
+	Headline    string
+	ModelConfig string
+}
+
+// SummarizeFn produces a SummaryOutput from completed step results. The
+// summarizer applies each step's summaryFilter itself.
+type SummarizeFn func(ctx context.Context, uc *v1alpha1.UseCase, steps []StepResult) (SummaryOutput, error)
 
 type Engine struct {
 	Deps        methods.Deps
@@ -87,13 +98,16 @@ func (e *Engine) Execute(ctx context.Context, uc *v1alpha1.UseCase, inputs map[s
 		res.Warning = "no summarizer configured"
 		return res, nil
 	}
-	summary, model, err := e.Summarize(ctx, uc, res.Steps)
+	out, err := e.Summarize(ctx, uc, res.Steps)
 	if err != nil {
 		// Spec §6.6: deterministic value never depends on AI availability.
 		res.Warning = fmt.Sprintf("summary unavailable: %v", err)
 		return res, nil
 	}
-	res.Summary, res.ModelConfig = summary, model
+	res.Summary = out.Summary
+	res.Healthy = out.Healthy
+	res.Headline = out.Headline
+	res.ModelConfig = out.ModelConfig
 	return res, nil
 }
 

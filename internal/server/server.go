@@ -237,11 +237,13 @@ type runRequest struct {
 }
 
 type runResponse struct {
-	Run     string              `json:"run"`
-	Phase   string              `json:"phase"`
-	Summary string              `json:"summary,omitempty"`
-	Warning string              `json:"warning,omitempty"`
-	Steps   []engine.StepResult `json:"steps,omitempty"`
+	Run      string              `json:"run"`
+	Phase    string              `json:"phase"`
+	Summary  string              `json:"summary,omitempty"`
+	Healthy  *bool               `json:"healthy,omitempty"`
+	Headline string              `json:"headline,omitempty"`
+	Warning  string              `json:"warning,omitempty"`
+	Steps    []engine.StepResult `json:"steps,omitempty"`
 }
 
 func (s *Server) runUseCase(w http.ResponseWriter, r *http.Request) {
@@ -291,7 +293,8 @@ func (s *Server) runUseCase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := runResponse{
-		Run: run.Name, Phase: res.Phase, Summary: res.Summary, Warning: res.Warning,
+		Run: run.Name, Phase: res.Phase, Summary: res.Summary,
+		Healthy: res.Healthy, Headline: res.Headline, Warning: res.Warning,
 	}
 	if r.URL.Query().Get("includeOutputs") != "false" {
 		resp.Steps = res.Steps

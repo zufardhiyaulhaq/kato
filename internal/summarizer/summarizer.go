@@ -109,10 +109,10 @@ type Summarizer struct {
 	DebugLog func(msg string, keysAndValues ...any)
 }
 
-func (s *Summarizer) Summarize(ctx context.Context, uc *v1alpha1.UseCase, steps []engine.StepResult) (string, string, error) {
+func (s *Summarizer) Summarize(ctx context.Context, uc *v1alpha1.UseCase, steps []engine.StepResult) (engine.SummaryOutput, error) {
 	completer, model, err := s.Resolve(uc)
 	if err != nil {
-		return "", "", err
+		return engine.SummaryOutput{}, err
 	}
 	evidence := BuildEvidence(uc, steps)
 	fullBytes := len(evidence)
@@ -122,20 +122,27 @@ func (s *Summarizer) Summarize(ctx context.Context, uc *v1alpha1.UseCase, steps 
 		truncated = true
 	}
 	user := "Use case: " + uc.Spec.Summary.Prompt + "\n\nEvidence:\n" + evidence
+	system := systemPrompt + "\n\n" + verdictInstruction
 	if s.Log != nil {
 		s.Log("summarizing", "useCase", uc.Name, "model", model,
 			"evidenceBytes", fullBytes, "promptBytes", len(user), "truncated", truncated)
 	}
 	if s.DebugLog != nil {
 		messages, _ := json.MarshalIndent([]chatMessage{
-			{Role: "system", Content: systemPrompt},
+			{Role: "system", Content: system},
 			{Role: "user", Content: user},
 		}, "", "  ")
 		s.DebugLog("llm request", "useCase", uc.Name, "model", model, "messages", string(messages))
 	}
-	out, err := completer.Complete(ctx, systemPrompt, user)
+	out, err := completer.Complete(ctx, system, user)
 	if err != nil {
-		return "", "", err
+		return engine.SummaryOutput{}, err
 	}
-	return out, model, nil
+	summary, healthy, headline := parseVerdict(out)
+	return engine.SummaryOutput{
+		Summary:     summary,
+		Healthy:     healthy,
+		Headline:    headline,
+		ModelConfig: model,
+	}, nil
 }

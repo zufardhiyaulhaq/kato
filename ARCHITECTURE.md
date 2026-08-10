@@ -210,6 +210,17 @@ the LLM is unavailable, the run still succeeds: the deterministic result is retu
 a `warning`, never blocked on AI. `MaxEvidenceBytes` caps the prompt to guard against a
 runaway ConfigMap or log dump.
 
+### Health verdict
+
+Every run carries an optional structured verdict alongside the prose summary:
+`healthy` (true / false / unknown) and a one-line `headline`. The summarizer
+appends a fixed instruction to the prompt asking the model to begin its reply
+with a `VERDICT:` line; kato parses that line (regex, no JSON mode) into the
+fields and strips it from the stored summary. The verdict is **advisory** — it
+is derived from the LLM only and never affects a run's phase, step outcomes, or
+`when`/`$(steps.x.y)` evaluation. A missing or malformed line degrades to
+`unknown` with the run still succeeding.
+
 ### summaryFilter — one knob, two consumers
 
 A step's `summaryFilter` is a single control with two effects: it selects which output

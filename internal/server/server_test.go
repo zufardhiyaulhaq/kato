@@ -108,6 +108,45 @@ func TestRunEndpointSuccess(t *testing.T) {
 	}
 }
 
+func TestRunUseCaseResponseIncludesVerdict(t *testing.T) {
+	uc := sampleUseCase()
+	healthy := false
+	src := &fakeUseCases{
+		items: map[string]*v1alpha1.UseCase{uc.Name: uc},
+		ready: map[string]bool{uc.Name: true},
+	}
+	exec := func(ctx context.Context, u *v1alpha1.UseCase, inputs map[string]string) (engine.Result, error) {
+		return engine.Result{Phase: engine.PhaseSucceeded, Summary: "s", Healthy: &healthy, Headline: "CrashLoopBackOff"}, nil
+	}
+	s := &Server{
+		UseCases: src, Runs: &fakeRuns{}, Execute: exec,
+		Registry: methods.Builtin(), MaxConcurrent: 10, Clock: func() time.Time { return time.Unix(0, 0) },
+	}
+
+	body := strings.NewReader(`{"inputs":{"namespace":"payments"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/usecases/pod-crashloop/run", body)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Phase    string `json:"phase"`
+		Healthy  *bool  `json:"healthy"`
+		Headline string `json:"headline"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Healthy == nil || *resp.Healthy != false {
+		t.Errorf("healthy = %v, want false", resp.Healthy)
+	}
+	if resp.Headline != "CrashLoopBackOff" {
+		t.Errorf("headline = %q, want CrashLoopBackOff", resp.Headline)
+	}
+}
+
 func TestRunEndpointErrors(t *testing.T) {
 	cases := []struct {
 		name       string

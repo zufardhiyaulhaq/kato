@@ -684,6 +684,15 @@ components:
         summary:
           type: string
           description: LLM-written summary. Omitted when empty.
+        healthy:
+          type: boolean
+          nullable: true
+          description: >
+            Health verdict from the summarizer: true = healthy, false =
+            unhealthy, absent/null = unknown. Advisory; never affects phase.
+        headline:
+          type: string
+          description: One-line reason for healthy (<=120 chars). Omitted when unknown.
         warning:
           type: string
           description: Set when the summary could not be produced. Omitted when empty.
@@ -800,6 +809,15 @@ components:
             $ref: '#/components/schemas/RunStep'
         summary:
           type: string
+        healthy:
+          type: boolean
+          nullable: true
+          description: >
+            Health verdict from the summarizer: true = healthy, false =
+            unhealthy, absent/null = unknown. Advisory; never affects phase.
+        headline:
+          type: string
+          description: One-line reason for healthy (<=120 chars). Omitted when unknown.
         note:
           type: string
           description: >

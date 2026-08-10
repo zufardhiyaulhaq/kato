@@ -61,6 +61,18 @@ spec:
               completedAt:
                 format: date-time
                 type: string
+              headline:
+                description: |-
+                  Headline is a short reason accompanying Healthy (e.g.
+                  "CrashLoopBackOff — bad image tag :v2"). Single line, never longer than
+                  120 characters (kato truncates). Empty when unknown.
+                type: string
+              healthy:
+                description: |-
+                  Healthy is the summarizer's verdict on the subject of the run: true =
+                  healthy, false = unhealthy, nil = unknown (no verdict emitted, or the
+                  summary itself failed). Advisory — it never affects Phase.
+                type: boolean
               modelConfig:
                 description: ModelConfig records which ModelConfig produced the summary.
                 type: string
