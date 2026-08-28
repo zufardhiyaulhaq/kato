@@ -73,6 +73,8 @@ runtime.
 | [`probe_traceroute`](#probe_traceroute) | Active ICMP traceroute — is the destination reachable, how many hops away, and where does the path stop? — also produces list output `hops` |
 | [`probe_grpc`](#probe_grpc) | Active gRPC health check — is `target:port` SERVING (`grpc.health.v1.Health/Check`)? |
 | [`probe_tls`](#probe_tls) | Active TLS handshake — is the chain valid and when does the certificate expire? |
+| [`read_only_check_postgresql`](#read_only_check_postgresql) | Active PostgreSQL check — connect with credentials from a Secret and run `SELECT 1` |
+| [`ping_check_redis`](#ping_check_redis) | Active Redis check — connect and `PING` (optional AUTH from a Secret) |
 
 ---
 
@@ -1258,6 +1260,94 @@ Pair with `probe_tcp`: gate `probe_tls` on `$(steps.<tcp>.success)` so the hands
 runs only when the port is open, separating "unreachable" from "bad certificate".
 `handshakeComplete` is the reachable-and-speaks-TLS signal; `verified`/`expired`
 say what is wrong with the certificate; `daysUntilExpiry` powers renewal warnings.
+
+---
+
+## Databases
+
+Active connectivity checks for datastores kato depends on. Unlike the network
+probes, these need credentials, so they read them from a **Secret** named by
+`secret` in `secretNamespace` (defaulting to kato's own namespace when omitted).
+kato's ClusterRole grants cluster-wide `get` on Secrets, so the Secret may live in
+**any namespace**. Only the Secret **name**, **namespace**, and **key names** are
+inputs; the resolved username/password are passed straight to the driver and are
+**never recorded in the Run**. A network/server outcome (refused, timeout, bad
+password) is a finding (`success: false`); a misconfiguration (missing input, a
+Secret that does not exist, or a required key absent) fails the step.
+
+### `read_only_check_postgresql`
+
+Active PostgreSQL connectivity check from kato's pod: resolves credentials from a
+Secret, connects to `host:port` / `dbname`, and runs `SELECT 1`. The username is
+required (Postgres cannot connect without one) — a missing/empty username key
+fails the step; the password is best-effort — a missing/empty password key just
+connects without one (trust/peer auth). A dial/auth/timeout/TLS failure is a
+finding (`success: false`), not an error, so a flow can gate later steps on
+`$(steps.<step>.success)`. Runs from kato's pod; reachability is governed by
+NetworkPolicy.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `host` | yes | host, IP, or DNS name |
+| `port` | yes | TCP port (1–65535) |
+| `dbname` | yes | database to connect to |
+| `secret` | yes | name of a Secret holding the credentials |
+| `secretNamespace` | no | namespace of the Secret (default: kato's own namespace) |
+| `usernameKey` | no | key in the Secret holding the username (default `username`); a missing/empty value fails the step |
+| `passwordKey` | no | key in the Secret holding the password (default `password`); missing/empty = connect with no password |
+| `sslmode` | no | `disable`/`allow`/`prefer`/`require`/`verify-ca`/`verify-full`; empty = `disable` (no SSL) |
+| `timeout` | no | whole-operation timeout (dial + `SELECT 1`) as a Go duration (default `5s`) |
+
+**Scalar outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `success` | bool | connected and `SELECT 1` returned `1` |
+| `serverVersion` | string | PostgreSQL `server_version`; `""` on failure |
+| `latencyMs` | int | connect + query in ms; `-1` on failure |
+| `error` | string | failure reason (dial/auth/timeout/TLS); `""` on success |
+
+`sslmode` mirrors libpq: `require` encrypts **without** certificate verification
+(the "SSL but I don't have the CA" escape hatch), while `verify-ca`/`verify-full`
+verify against system roots — a self-signed or expired server cert then surfaces
+as a finding (`success: false`). The `error` output is sanitized of the resolved
+username, so credentials never reach the Run even on a failed connect. Point
+`secret` at a low-privilege, read-only account: the check only ever runs
+`SELECT 1`.
+
+---
+
+### `ping_check_redis`
+
+Active Redis connectivity check from kato's pod: connects to `host:port` and
+sends `PING`, expecting `PONG`. AUTH is optional — omit `secret` for a no-auth
+Redis; set it to resolve credentials from a Secret. Redis AUTH is password-only by
+default, so an ACL username is sent **only** when you set `usernameKey` (there is
+no default username-key lookup). A dial/timeout/`NOAUTH`/`WRONGPASS` failure is a
+finding (`success: false`), not an error; a named-but-missing Secret fails the
+step. Runs from kato's pod; reachability is governed by NetworkPolicy.
+
+**Inputs**
+
+| Name | Required | Description |
+|---|---|---|
+| `host` | yes | host, IP, or DNS name |
+| `port` | yes | TCP port (1–65535) |
+| `secret` | no | name of a Secret holding the AUTH credentials; omit for no-auth Redis |
+| `secretNamespace` | no | namespace of the Secret (default: kato's own namespace); used only when `secret` is set |
+| `passwordKey` | no | key in the Secret holding the password (default `password`); used only when `secret` is set |
+| `usernameKey` | no | key in the Secret holding the ACL username; used only when set |
+| `timeout` | no | whole-operation timeout (dial + `PING`) as a Go duration (default `5s`) |
+
+**Scalar outputs**
+
+| Name | Type | Description |
+|---|---|---|
+| `success` | bool | `PONG` received |
+| `latencyMs` | int | dial + PING in ms; `-1` on failure |
+| `error` | string | failure reason (dial/timeout/`NOAUTH`/`WRONGPASS`); `""` on success |
 
 ---
 

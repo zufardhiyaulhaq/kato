@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
 	"google.golang.org/grpc"
@@ -34,6 +36,8 @@ type Prober interface {
 	ProbeTraceroute(ctx context.Context, req TracerouteRequest) TracerouteResult
 	ProbeGRPC(ctx context.Context, req GRPCProbeRequest) GRPCResult
 	ProbeTLS(ctx context.Context, req TLSProbeRequest) TLSResult
+	ProbePostgres(ctx context.Context, req PostgresProbeRequest) PostgresResult
+	ProbeRedis(ctx context.Context, req RedisProbeRequest) RedisResult
 }
 
 // TCPResult is the outcome of a TCP connect probe.
@@ -157,6 +161,43 @@ type TLSResult struct {
 	TLSVersion        string // negotiated version, e.g. "TLS1.3"
 	LatencyMS         int64  // dial + handshake in ms; -1 on failure
 	Err               string // transport/handshake failure reason; "" otherwise
+}
+
+// PostgresProbeRequest is a fully-resolved PostgreSQL connectivity probe: params
+// parsed/defaulted and credentials already resolved from the Secret by the method.
+type PostgresProbeRequest struct {
+	Host     string
+	Port     int
+	User     string
+	Password string // "" = connect without a password (trust/peer auth)
+	DBName   string
+	SSLMode  string        // disable/allow/prefer/require/verify-ca/verify-full
+	Timeout  time.Duration // whole-operation bound (dial + SELECT 1)
+}
+
+// PostgresResult is the outcome of a PostgreSQL check (connect, then SELECT 1).
+type PostgresResult struct {
+	Success       bool   // connected and SELECT 1 returned 1
+	ServerVersion string // server_version parameter status; "" on failure
+	LatencyMS     int64  // connect + query in ms; -1 on failure
+	Err           string // failure reason (dial/auth/timeout/TLS); "" on success
+}
+
+// RedisProbeRequest is a fully-resolved Redis PING probe: params parsed/defaulted
+// and credentials already resolved from the Secret by the method (when set).
+type RedisProbeRequest struct {
+	Host     string
+	Port     int
+	Username string        // ACL username; "" = none (legacy/default-user AUTH)
+	Password string        // "" = no AUTH sent
+	Timeout  time.Duration // whole-operation bound (dial + PING)
+}
+
+// RedisResult is the outcome of a Redis PING probe.
+type RedisResult struct {
+	Success   bool   // PONG received
+	LatencyMS int64  // dial + PING in ms; -1 on failure
+	Err       string // failure reason (dial/timeout/NOAUTH/WRONGPASS); "" on success
 }
 
 // LocalProber probes from the current process. Network reachability is governed by
@@ -464,6 +505,110 @@ func (p LocalProber) ProbeTLS(ctx context.Context, req TLSProbeRequest) TLSResul
 	}
 	res.Verified = true
 	return res
+}
+
+func (LocalProber) ProbePostgres(ctx context.Context, req PostgresProbeRequest) PostgresResult {
+	ctx, cancel := context.WithTimeout(ctx, req.Timeout)
+	defer cancel()
+
+	cfg, err := pgConnConfig(req)
+	if err != nil {
+		return PostgresResult{LatencyMS: -1, Err: redactUser(err.Error(), req.User)}
+	}
+
+	start := time.Now()
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		return PostgresResult{LatencyMS: -1, Err: redactUser(err.Error(), req.User)}
+	}
+	defer conn.Close(ctx)
+
+	var one int
+	if err := conn.QueryRow(ctx, "SELECT 1").Scan(&one); err != nil {
+		return PostgresResult{LatencyMS: -1, Err: redactUser(err.Error(), req.User)}
+	}
+	return PostgresResult{
+		Success:       one == 1,
+		ServerVersion: conn.PgConn().ParameterStatus("server_version"),
+		LatencyMS:     time.Since(start).Milliseconds(),
+	}
+}
+
+// pgConnConfig builds a pgx config for req. host + sslmode go through a DSN; the
+// remaining fields are set on the struct so the password never passes through DSN
+// quoting. host is single-quoted so a value carrying DSN syntax cannot inject
+// extra keywords, and stays in the DSN so pgx derives the TLS ServerName for
+// verify-ca/verify-full.
+func pgConnConfig(req PostgresProbeRequest) (*pgx.ConnConfig, error) {
+	cfg, err := pgx.ParseConfig(fmt.Sprintf("host=%s sslmode=%s", quoteDSNValue(req.Host), quoteDSNValue(req.SSLMode)))
+	if err != nil {
+		return nil, err
+	}
+	cfg.Port = uint16(req.Port)
+	cfg.User = req.User
+	cfg.Password = req.Password
+	cfg.Database = req.DBName
+	cfg.ConnectTimeout = req.Timeout
+	return cfg, nil
+}
+
+// quoteDSNValue single-quotes a libpq keyword/value DSN value, escaping backslash
+// and single-quote, so a user-controlled value cannot inject extra keywords.
+func quoteDSNValue(v string) string {
+	v = strings.ReplaceAll(v, `\`, `\\`)
+	v = strings.ReplaceAll(v, `'`, `\'`)
+	return "'" + v + "'"
+}
+
+// redactUser strips the resolved DB username from a driver error before it is
+// surfaced as an output and recorded in the Run. pgx's ConnectError embeds
+// `user=<username>`; with cluster-wide Secret read, usernameKey can point at any
+// key of any Secret, so the error must never echo the resolved value.
+func redactUser(msg, user string) string {
+	if user == "" {
+		return msg
+	}
+	return strings.ReplaceAll(msg, user, "[redacted]")
+}
+
+// discardRedisLogger silences go-redis's package-global logger. For a
+// connectivity *check*, a dial/pool failure is the expected outcome and is
+// already reported in RedisResult.Err, so the library's stderr chatter would be
+// duplicate noise in kato's logs.
+type discardRedisLogger struct{}
+
+func (discardRedisLogger) Printf(context.Context, string, ...any) {}
+
+func init() { redis.SetLogger(discardRedisLogger{}) }
+
+func (LocalProber) ProbeRedis(ctx context.Context, req RedisProbeRequest) RedisResult {
+	ctx, cancel := context.WithTimeout(ctx, req.Timeout)
+	defer cancel()
+
+	// go-redis sends AUTH only when a password is set (with the ACL username, if
+	// any, alongside it), so empty credentials mean "just PING" against a no-auth
+	// server. MaxRetries -1 fails fast against a dead port instead of retrying
+	// within the deadline.
+	client := redis.NewClient(&redis.Options{
+		Addr:         net.JoinHostPort(req.Host, strconv.Itoa(req.Port)),
+		Username:     req.Username,
+		Password:     req.Password,
+		DialTimeout:  req.Timeout,
+		ReadTimeout:  req.Timeout,
+		WriteTimeout: req.Timeout,
+		MaxRetries:   -1,
+	})
+	defer client.Close()
+
+	start := time.Now()
+	pong, err := client.Ping(ctx).Result()
+	if err != nil {
+		return RedisResult{LatencyMS: -1, Err: err.Error()}
+	}
+	return RedisResult{
+		Success:   strings.EqualFold(pong, "PONG"),
+		LatencyMS: time.Since(start).Milliseconds(),
+	}
 }
 
 // embeddedEchoSeq extracts the ICMP Echo sequence number from the original

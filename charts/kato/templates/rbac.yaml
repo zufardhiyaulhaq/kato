@@ -8,6 +8,13 @@ rules:
   - apiGroups: [""]
     resources: [pods, pods/log, nodes, services, events, endpoints, configmaps, persistentvolumeclaims]
     verbs: [get, list, watch]
+  # The DB-connectivity checks (read_only_check_postgresql, ping_check_redis)
+  # resolve their credentials from a Secret named by the UseCase; a cluster-wide
+  # `get` lets that Secret live in any namespace. Get-only and a dedicated rule:
+  # kato never lists or watches Secrets.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get]
   - apiGroups: ["apps"]
     resources: [deployments, replicasets, daemonsets, statefulsets]
     verbs: [get, list, watch]
@@ -76,9 +83,8 @@ rules:
   - apiGroups: ["kato.zufardhiyaulhaq.com"]
     resources: [runs/status]
     verbs: [update, patch]
-  - apiGroups: [""]
-    resources: [secrets]
-    verbs: [get]
+  # Secret `get` is granted cluster-wide by the ClusterRole above (DB-check and
+  # LLM-key credentials), so no namespaced Secret rule is needed here.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

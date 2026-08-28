@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -540,6 +541,82 @@ func TestLocalProberTLSNotATLSEndpoint(t *testing.T) {
 	})
 	if res.HandshakeComplete || res.Err == "" || res.LatencyMS != -1 {
 		t.Fatalf("want handshake failure with Err set and LatencyMS=-1, got %+v", res)
+	}
+}
+
+func TestLocalProberPostgresConnRefused(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port := hostPort(t, "http://"+ln.Addr().String())
+	ln.Close() // nothing listening on this port now
+
+	res := LocalProber{}.ProbePostgres(context.Background(), PostgresProbeRequest{
+		Host: "127.0.0.1", Port: port, User: "u", Password: "p", DBName: "db",
+		SSLMode: "disable", Timeout: 500 * time.Millisecond,
+	})
+	if res.Success || res.Err == "" || res.LatencyMS != -1 {
+		t.Errorf("got %+v, want failure finding (success=false, err set, latency -1)", res)
+	}
+}
+
+func TestPGConnConfigHostNotDSNInjectable(t *testing.T) {
+	// A host value carrying DSN syntax must be treated as a single literal host,
+	// never split into extra connection settings (servicefile, sslmode, GUCs, …).
+	malicious := "evil sslmode=disable servicefile=/x"
+	cfg, err := pgConnConfig(PostgresProbeRequest{
+		Host: malicious, Port: 5432, User: "u", Password: "p", DBName: "d",
+		SSLMode: "require", Timeout: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("pgConnConfig: %v", err)
+	}
+	if cfg.Host != malicious {
+		t.Errorf("host was DSN-parsed instead of treated literally: cfg.Host = %q", cfg.Host)
+	}
+	// Our validated sslmode=require must still take effect (TLS configured).
+	if cfg.TLSConfig == nil {
+		t.Error("sslmode=require did not apply (TLSConfig is nil)")
+	}
+}
+
+func TestLocalProberPostgresErrorRedactsUsername(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port := hostPort(t, "http://"+ln.Addr().String())
+	ln.Close()
+
+	// The username can be an arbitrary Secret key value (cluster-wide read), so a
+	// connect failure must never echo it — pgx's ConnectError embeds `user=…`.
+	const sentinel = "s3cret-username-do-not-leak"
+	res := LocalProber{}.ProbePostgres(context.Background(), PostgresProbeRequest{
+		Host: "127.0.0.1", Port: port, User: sentinel, Password: "p", DBName: "db",
+		SSLMode: "disable", Timeout: 500 * time.Millisecond,
+	})
+	if res.Success {
+		t.Fatal("expected failure on a closed port")
+	}
+	if strings.Contains(res.Err, sentinel) {
+		t.Errorf("error leaked the username: %q", res.Err)
+	}
+}
+
+func TestLocalProberRedisConnRefused(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port := hostPort(t, "http://"+ln.Addr().String())
+	ln.Close() // nothing listening on this port now
+
+	res := LocalProber{}.ProbeRedis(context.Background(), RedisProbeRequest{
+		Host: "127.0.0.1", Port: port, Timeout: 500 * time.Millisecond,
+	})
+	if res.Success || res.Err == "" || res.LatencyMS != -1 {
+		t.Errorf("got %+v, want failure finding (success=false, err set, latency -1)", res)
 	}
 }
 

@@ -22,6 +22,10 @@ type fakeProber struct {
 	gotGRPC    GRPCProbeRequest
 	tlsRes     TLSResult
 	gotTLS     TLSProbeRequest
+	postgres   PostgresResult
+	gotPG      PostgresProbeRequest
+	redis      RedisResult
+	gotRedis   RedisProbeRequest
 }
 
 func (f *fakeProber) ProbeTCP(_ context.Context, target string, port int, _ time.Duration) TCPResult {
@@ -52,6 +56,16 @@ func (f *fakeProber) ProbeGRPC(_ context.Context, req GRPCProbeRequest) GRPCResu
 func (f *fakeProber) ProbeTLS(_ context.Context, req TLSProbeRequest) TLSResult {
 	f.gotTLS = req
 	return f.tlsRes
+}
+
+func (f *fakeProber) ProbePostgres(_ context.Context, req PostgresProbeRequest) PostgresResult {
+	f.gotPG = req
+	return f.postgres
+}
+
+func (f *fakeProber) ProbeRedis(_ context.Context, req RedisProbeRequest) RedisResult {
+	f.gotRedis = req
+	return f.redis
 }
 
 func TestProbeTCPSuccess(t *testing.T) {

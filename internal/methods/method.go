@@ -61,10 +61,15 @@ type Outputs map[string]any
 // Deps holds the clients a method may use. Kube is always set. Metrics is set
 // only when a metrics-server client is configured; methods that need it must
 // handle a nil Metrics gracefully (report metrics as unavailable, not error).
+// Namespace is kato's own namespace — the default location for Secrets a method
+// reads (e.g. DB credentials for read_only_check_postgresql) when the caller
+// omits secretNamespace. kato's ClusterRole grants cluster-wide `get` on Secrets,
+// so a check may point at a Secret in any namespace.
 type Deps struct {
-	Kube    kubernetes.Interface
-	Metrics metricsv.Interface
-	Prober  Prober
+	Kube      kubernetes.Interface
+	Metrics   metricsv.Interface
+	Prober    Prober
+	Namespace string
 }
 
 type Method interface {
