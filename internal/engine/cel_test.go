@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"github.com/zufardhiyaulhaq/kato/internal/methods"
+	"github.com/gopaytech/kato/internal/methods"
 )
 
 func testScope() Scope {

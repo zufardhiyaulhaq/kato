@@ -1,7 +1,7 @@
 {{ template "chart.header" . }}
 {{ template "chart.description" . }}
 
-{{ template "chart.versionBadge" . }}{{ template "chart.typeBadge" . }}{{ template "chart.appVersionBadge" . }}[![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/zufardhiyaulhaq/kato/main.yml?branch=main)](https://github.com/zufardhiyaulhaq/kato/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/zufardhiyaulhaq/kato)](https://github.com/zufardhiyaulhaq/kato/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/zufardhiyaulhaq/kato)](https://github.com/zufardhiyaulhaq/kato/pulls)
+{{ template "chart.versionBadge" . }}{{ template "chart.typeBadge" . }}{{ template "chart.appVersionBadge" . }}[![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/gopaytech/kato/main.yml?branch=main)](https://github.com/gopaytech/kato/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/gopaytech/kato)](https://github.com/gopaytech/kato/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/gopaytech/kato)](https://github.com/gopaytech/kato/pulls)
 
 > Turn your team's runbooks into versioned CRDs. kato runs the exact checks **you**
 > chose, in the order you chose, and lets an LLM do only the last mile — writing up
@@ -117,9 +117,9 @@ active network probes:
 | Listing / fan-out | `list_pods`, `list_failing_pods`, `list_nodes`, `list_node_pods` (drive `forEach` across a workload's or node's pods, or the node fleet) |
 | Active probes | `probe_tcp`, `probe_http`, `probe_dns`, `probe_traceroute`, `probe_grpc`, `probe_tls` (run from kato's pod; reachability governed by NetworkPolicy) |
 
-Full reference and every output field: [`docs/METHOD.md`](https://github.com/zufardhiyaulhaq/kato/blob/main/docs/METHOD.md).
+Full reference and every output field: [`docs/METHOD.md`](https://github.com/gopaytech/kato/blob/main/docs/METHOD.md).
 Ready-made UseCases (general pod, deployment & node troubleshooting, cluster DNS, the Terway CNI, the istio-ingressgateway, control-plane health, and TCP/HTTP/gRPC connectivity checks)
-live under [`examples/`](https://github.com/zufardhiyaulhaq/kato/tree/main/examples).
+live under [`examples/`](https://github.com/gopaytech/kato/tree/main/examples).
 
 ## API
 
@@ -146,14 +146,14 @@ curl -s -X POST localhost:8080/api/v1/usecases/pod-troubleshooting/run \
 ```
 
 No OpenAI account? Point `ModelConfig` at a local Ollama model instead — see
-[`examples/modelconfig/`](https://github.com/zufardhiyaulhaq/kato/tree/main/examples/modelconfig).
+[`examples/modelconfig/`](https://github.com/gopaytech/kato/tree/main/examples/modelconfig).
 
 ## Installing
 
 To install the chart with the release name `my-release`:
 
 ```console
-helm repo add kato https://zufardhiyaulhaq.com/kato/charts/releases/
+helm repo add kato https://gopaytech.github.io/kato/
 helm install my-kato kato/kato --values values.yaml
 ```
 
@@ -161,6 +161,6 @@ helm install my-kato kato/kato --values values.yaml
 
 {{ template "chart.valuesSection" . }}
 
-see example files [here](https://github.com/zufardhiyaulhaq/kato/blob/main/charts/kato/values.yaml)
+see example files [here](https://github.com/gopaytech/kato/blob/main/charts/kato/values.yaml)
 
 {{ template "helm-docs.versionFooter" . }}

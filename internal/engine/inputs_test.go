@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zufardhiyaulhaq/kato/api/v1alpha1"
-	"github.com/zufardhiyaulhaq/kato/internal/methods"
+	"github.com/gopaytech/kato/api/v1alpha1"
+	"github.com/gopaytech/kato/internal/methods"
 )
 
 func uc(inputs ...v1alpha1.InputDecl) *v1alpha1.UseCase {

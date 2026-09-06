@@ -3,10 +3,10 @@ entries:
   kato:
   - apiVersion: v2
     appVersion: 0.8.0
-    created: "2026-08-28T18:05:34.811428+07:00"
+    created: "2026-09-06T18:24:23.607329+07:00"
     description: Kubernetes troubleshooting via declarative UseCase flows with AI
       summaries
-    digest: 2d28d8a4b4013cc6007470831584dda8a282bf6a2f9c673b191016db37d8941e
+    digest: 9b5049850e5f61b4a7110a041629dc7e09c242f51fc9b143a791ee7f6b4a9071
     name: kato
     type: application
     urls:
@@ -14,7 +14,7 @@ entries:
     version: 0.8.0
   - apiVersion: v2
     appVersion: 0.7.0
-    created: "2026-08-28T18:05:34.811118+07:00"
+    created: "2026-09-06T18:24:23.606752+07:00"
     description: Kubernetes troubleshooting via declarative UseCase flows with AI
       summaries
     digest: d7d6d43de801dff6f2472b951de1a854243728a11ac093d957512d8be32f51af
@@ -25,7 +25,7 @@ entries:
     version: 0.7.0
   - apiVersion: v2
     appVersion: 0.6.0
-    created: "2026-08-28T18:05:34.809735+07:00"
+    created: "2026-09-06T18:24:23.605328+07:00"
     description: Kubernetes troubleshooting via declarative UseCase flows with AI
       summaries
     digest: 02b52cefa0bb1d15c6a99651e6cdc0bd776f4dfb053708a2dd3a8ab84f48d796
@@ -36,7 +36,7 @@ entries:
     version: 0.6.0
   - apiVersion: v2
     appVersion: 0.5.0
-    created: "2026-08-28T18:05:34.809368+07:00"
+    created: "2026-09-06T18:24:23.604947+07:00"
     description: Kubernetes troubleshooting via declarative UseCase flows with AI
       summaries
     digest: 3c7e8712175c11736e28d34a52b05425fe61f6df8c382b6d3ce15e2ee4284a8d
@@ -47,7 +47,7 @@ entries:
     version: 0.5.0
   - apiVersion: v2
     appVersion: 0.4.0
-    created: "2026-08-28T18:05:34.808972+07:00"
+    created: "2026-09-06T18:24:23.604483+07:00"
     description: Kubernetes troubleshooting via declarative UseCase flows with AI
       summaries
     digest: 3555e08f30751fb0aa7985b2219b8938a060cd4d549734f8fcd397d9d6322322
@@ -58,7 +58,7 @@ entries:
     version: 0.4.0
   - apiVersion: v2
     appVersion: 0.3.0
-    created: "2026-08-28T18:05:34.80818+07:00"
+    created: "2026-09-06T18:24:23.604088+07:00"
     description: Kubernetes troubleshooting via declarative UseCase flows with AI
       summaries
     digest: e45aba4c8c49e46dd39327adc2348b39509652b63404bc40f748e03ae45e7c40
@@ -69,7 +69,7 @@ entries:
     version: 0.3.0
   - apiVersion: v2
     appVersion: 0.2.0
-    created: "2026-08-28T18:05:34.807808+07:00"
+    created: "2026-09-06T18:24:23.603651+07:00"
     description: Kubernetes troubleshooting via declarative UseCase flows with AI
       summaries
     digest: cfd4d7e8b2af80a3259c53aa319e132f0dc5a1754a3982a913b7a2f2032760da
@@ -80,7 +80,7 @@ entries:
     version: 0.2.0
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2026-08-28T18:05:34.807489+07:00"
+    created: "2026-09-06T18:24:23.603307+07:00"
     description: Kubernetes troubleshooting via declarative UseCase flows with AI
       summaries
     digest: 0e7fbfb4aa927bfc411ac1ca18c648b688daef76be7099ff620a1899371597ab
@@ -89,4 +89,4 @@ entries:
     urls:
     - kato-0.1.0.tgz
     version: 0.1.0
-generated: "2026-08-28T18:05:34.805668+07:00"
+generated: "2026-09-06T18:24:23.602083+07:00"

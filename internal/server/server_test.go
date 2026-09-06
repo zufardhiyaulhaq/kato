@@ -11,9 +11,9 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/zufardhiyaulhaq/kato/api/v1alpha1"
-	"github.com/zufardhiyaulhaq/kato/internal/engine"
-	"github.com/zufardhiyaulhaq/kato/internal/methods"
+	"github.com/gopaytech/kato/api/v1alpha1"
+	"github.com/gopaytech/kato/internal/engine"
+	"github.com/gopaytech/kato/internal/methods"
 )
 
 // --- test doubles ---

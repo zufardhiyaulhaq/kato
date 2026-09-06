@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/zufardhiyaulhaq/kato/api/v1alpha1"
-	"github.com/zufardhiyaulhaq/kato/internal/summarizer"
+	"github.com/gopaytech/kato/api/v1alpha1"
+	"github.com/gopaytech/kato/internal/summarizer"
 )
 
 // ModelConfigCache stores ModelConfig CRs and resolves them to Completers.

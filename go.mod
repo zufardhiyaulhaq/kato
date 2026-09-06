@@ -1,4 +1,4 @@
-module github.com/zufardhiyaulhaq/kato
+module github.com/gopaytech/kato
 
 go 1.25.0
 

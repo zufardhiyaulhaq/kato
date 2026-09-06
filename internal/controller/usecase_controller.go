@@ -8,9 +8,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/zufardhiyaulhaq/kato/api/v1alpha1"
-	"github.com/zufardhiyaulhaq/kato/internal/engine"
-	"github.com/zufardhiyaulhaq/kato/internal/methods"
+	"github.com/gopaytech/kato/api/v1alpha1"
+	"github.com/gopaytech/kato/internal/engine"
+	"github.com/gopaytech/kato/internal/methods"
 )
 
 // UseCaseReconciler validates each UseCase (spec §4) and maintains the cache +

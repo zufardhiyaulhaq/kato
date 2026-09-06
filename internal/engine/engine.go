@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/zufardhiyaulhaq/kato/api/v1alpha1"
-	"github.com/zufardhiyaulhaq/kato/internal/methods"
+	"github.com/gopaytech/kato/api/v1alpha1"
+	"github.com/gopaytech/kato/internal/methods"
 )
 
 const (

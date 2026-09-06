@@ -8,7 +8,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/zufardhiyaulhaq/kato/api/v1alpha1"
+	"github.com/gopaytech/kato/api/v1alpha1"
 )
 
 func runtimeScheme(t *testing.T) *runtime.Scheme {

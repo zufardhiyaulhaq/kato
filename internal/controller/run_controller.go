@@ -14,9 +14,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	"github.com/zufardhiyaulhaq/kato/api/v1alpha1"
-	"github.com/zufardhiyaulhaq/kato/internal/engine"
-	"github.com/zufardhiyaulhaq/kato/internal/store"
+	"github.com/gopaytech/kato/api/v1alpha1"
+	"github.com/gopaytech/kato/internal/engine"
+	"github.com/gopaytech/kato/internal/store"
 )
 
 // ExecuteFunc runs a flow (engine.Engine.Execute satisfies it). Mirrors the

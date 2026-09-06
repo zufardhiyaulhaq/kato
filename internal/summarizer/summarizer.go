@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/zufardhiyaulhaq/kato/api/v1alpha1"
-	"github.com/zufardhiyaulhaq/kato/internal/engine"
+	"github.com/gopaytech/kato/api/v1alpha1"
+	"github.com/gopaytech/kato/internal/engine"
 )
 
 const systemPrompt = `You are a Kubernetes troubleshooting assistant. You are given evidence collected by a deterministic set of checks. Diagnose the problem based ONLY on this evidence. Cite the specific step evidence that supports each claim. If the evidence is insufficient, say the diagnosis is inconclusive rather than guessing. Do not invent data that is not present.`

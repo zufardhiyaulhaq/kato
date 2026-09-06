@@ -8,7 +8,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/zufardhiyaulhaq/kato/api/v1alpha1"
+	"github.com/gopaytech/kato/api/v1alpha1"
 )
 
 func TestListAndGetRuns(t *testing.T) {

@@ -16,14 +16,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/zufardhiyaulhaq/kato/api/v1alpha1"
-	"github.com/zufardhiyaulhaq/kato/internal/config"
-	"github.com/zufardhiyaulhaq/kato/internal/controller"
-	"github.com/zufardhiyaulhaq/kato/internal/engine"
-	"github.com/zufardhiyaulhaq/kato/internal/methods"
-	"github.com/zufardhiyaulhaq/kato/internal/server"
-	"github.com/zufardhiyaulhaq/kato/internal/store"
-	"github.com/zufardhiyaulhaq/kato/internal/summarizer"
+	"github.com/gopaytech/kato/api/v1alpha1"
+	"github.com/gopaytech/kato/internal/config"
+	"github.com/gopaytech/kato/internal/controller"
+	"github.com/gopaytech/kato/internal/engine"
+	"github.com/gopaytech/kato/internal/methods"
+	"github.com/gopaytech/kato/internal/server"
+	"github.com/gopaytech/kato/internal/store"
+	"github.com/gopaytech/kato/internal/summarizer"
 )
 
 func main() {

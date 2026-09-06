@@ -7,7 +7,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/zufardhiyaulhaq/kato/api/v1alpha1"
+	"github.com/gopaytech/kato/api/v1alpha1"
 )
 
 // UseCaseCache is the API's read side: name -> (use case, ready). Thread-safe.
